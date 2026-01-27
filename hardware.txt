@@ -1,0 +1,33 @@
+Hardware selection notes
+
+Goal: build a standalone, Wi-Fi enabled LED display to show transit data from our backend, without using a Raspberry Pi.
+
+After testing different approaches (Raspberry Pi + HATs, ESP32 + adapters), we settled on an ESP32-based HUB75 controller to minimize complexity.
+
+Chosen parts:
+
+ESP32 Matrix Controller (MatrixPortal S3 compatible)
+Used as both the microcontroller and HUB75 driver. Handles Wi-Fi, API calls, and rendering directly to the panel.
+https://www.aliexpress.us/item/3256808623629898.html
+
+RGB LED Matrix Panel (P2.5, 64×32, HUB75)
+Indoor full-color LED panel. Standard HUB75 interface supported by the controller.
+https://www.aliexpress.us/item/2255799816372142.html
+
+5V Power Supply for LED Panel
+LED panel requires high current and cannot be powered over USB. Dedicated 5V supply is used.
+https://www.amazon.com/gp/product/B0B79FVPQ4
+
+USB Power Supply for Controller
+ESP32 controller is powered separately via USB.
+https://www.adafruit.com/product/1994
+
+Power setup:
+
+LED panel powered directly by the 5V high-current supply
+
+ESP32 controller powered via USB
+
+Shared ground between controller and panel
+
+This setup is sufficient to run the display, connect to Wi-Fi, fetch API data, and render it on the LED panel without additional hardware.
