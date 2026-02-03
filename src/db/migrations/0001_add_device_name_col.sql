@@ -1,0 +1,1 @@
+ALTER TABLE "devices" ADD COLUMN "device_name" text NOT NULL;
