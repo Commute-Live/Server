@@ -1,0 +1,25 @@
+{
+    "name": "commuteliveserver",
+    "module": "index.ts",
+    "type": "module",
+    "scripts": {
+        "db:generate": "drizzle-kit generate",
+        "db:migrate": "drizzle-kit migrate",
+        "db:studio": "drizzle-kit studio"
+    },
+    "dependencies": {
+        "dotenv": "^17.2.3",
+        "drizzle-orm": "^0.45.1",
+        "pg": "^8.18.0",
+        "postgres": "latest"
+    },
+    "devDependencies": {
+        "@types/bun": "latest",
+        "@types/pg": "^8.16.0",
+        "drizzle-kit": "^0.31.8",
+        "tsx": "^4.21.0"
+    },
+    "peerDependencies": {
+        "typescript": "^5"
+    }
+}
