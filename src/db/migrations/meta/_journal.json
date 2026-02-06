@@ -15,6 +15,20 @@
       "when": 1770158527630,
       "tag": "0001_add_device_name_col",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1770408000000,
+      "tag": "0002_users_devices",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1770411600000,
+      "tag": "0003_device_id_text",
+      "breakpoints": true
     }
   ]
 }
