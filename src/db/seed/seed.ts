@@ -1,16 +1,25 @@
 import "dotenv/config";
+import { createHash, randomUUID } from "node:crypto";
 import { startDb } from "../db.ts";
-import { devices } from "../schema/schema.ts";
+import { devices, users } from "../schema/schema.ts";
 
 const { db, sql } = startDb();
 
 async function seed() {
-    const deviceId = crypto.randomUUID();
+    const deviceId = randomUUID();
 
     await db.insert(devices).values({
+        id: deviceId,
+        timezone: "America/New_York",
+        preferences: { brightness: 0.8, lines: ["A", "B"] },
+    });
+
+    const passwordHash = createHash("sha256").update("demo-password").digest("hex");
+
+    await db.insert(users).values({
+        email: "demo@example.com",
+        passwordHash,
         deviceId,
-        deviceName: "bugs-bunny",
-        config: {},
     });
 
     await sql.end();
