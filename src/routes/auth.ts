@@ -64,7 +64,7 @@ export function registerAuth(app: Hono, deps: dependency) {
     });
 
     // Login by email/password
-    app.post("/login", async (c) => {
+    app.post("/user/login", async (c) => {
         const body = await c.req.json().catch(() => null);
         const { email, password } = body ?? {};
         if (!email || !password) return c.json({ error: "email and password are required" }, 400);
