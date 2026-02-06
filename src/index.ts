@@ -10,8 +10,9 @@ const app = new Hono();
 registerRoutes(app, { sql, db });
 
 const server = Bun.serve({
-    port: 8080,
-    fetch: app.fetch,
+  hostname: "127.0.0.1",
+  port: Number(process.env.PORT ?? 8080),
+  fetch: app.fetch,
 });
 
 console.log(`Listening on ${server.url}`);
