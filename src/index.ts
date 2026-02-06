@@ -10,7 +10,7 @@ const app = new Hono();
 registerRoutes(app, { sql, db });
 
 const server = Bun.serve({
-    port: 3000,
+    port: 8080,
     fetch: app.fetch,
 });
 
