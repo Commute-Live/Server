@@ -2,7 +2,7 @@ import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
 import { createHash } from "node:crypto";
 import type { dependency } from "../types/dependency.d.ts";
-import { devices, users } from "../db/schema/schema.ts";
+import { devices, users, userDevices } from "../db/schema/schema.ts";
 
 const hashPassword = (password: string) =>
     createHash("sha256").update(password).digest("hex");
@@ -30,24 +30,15 @@ export function registerAuth(app: Hono, deps: dependency) {
         }
     });
 
-    // Register a user tied to a device
+    // Register a user account (no device linkage here)
     app.post("/user/register", async (c) => {
         const body = await c.req.json().catch(() => null);
-        const { email, password, deviceId } = body ?? {};
+        const { email, password } = body ?? {};
 
-        if (!email || !password || !deviceId) {
-            return c.json({ error: "email, password, deviceId are required" }, 400);
+        if (!email || !password) {
+            return c.json({ error: "email and password are required" }, 400);
         }
 
-        // Ensure device exists
-        const [device] = await deps.db.select().from(devices).where(eq(devices.id, deviceId)).limit(1);
-        if (!device) return c.json({ error: "device not found" }, 404);
-
-        // Ensure device not already linked
-        const existingDeviceUser = await deps.db.select().from(users).where(eq(users.deviceId, deviceId)).limit(1);
-        if (existingDeviceUser.length) return c.json({ error: "device already registered to a user" }, 409);
-
-        // Ensure email unique
         const existingEmail = await deps.db.select().from(users).where(eq(users.email, email)).limit(1);
         if (existingEmail.length) return c.json({ error: "email already registered" }, 409);
 
@@ -55,15 +46,41 @@ export function registerAuth(app: Hono, deps: dependency) {
         try {
             const [user] = await deps.db
                 .insert(users)
-                .values({ email, passwordHash, deviceId })
+                .values({ email, passwordHash })
                 .returning();
-            return c.json({ user }, 201);
+            return c.json({ user, devices: [] }, 201);
         } catch (err) {
             return c.json({ error: "User create failed", detail: `${err}` }, 500);
         }
     });
 
-    // Login by email/password
+    // Link an existing device to a user
+    app.post("/user/device/link", async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const { userId, deviceId } = body ?? {};
+
+        if (!userId || !deviceId) {
+            return c.json({ error: "userId and deviceId are required" }, 400);
+        }
+
+        const [user] = await deps.db.select().from(users).where(eq(users.id, userId)).limit(1);
+        if (!user) return c.json({ error: "user not found" }, 404);
+
+        const [device] = await deps.db.select().from(devices).where(eq(devices.id, deviceId)).limit(1);
+        if (!device) return c.json({ error: "device not found" }, 404);
+
+        const [taken] = await deps.db.select().from(userDevices).where(eq(userDevices.deviceId, deviceId)).limit(1);
+        if (taken) return c.json({ error: "device already linked to another user" }, 409);
+
+        try {
+            const [link] = await deps.db.insert(userDevices).values({ userId, deviceId }).returning();
+            return c.json({ link }, 201);
+        } catch (err) {
+            return c.json({ error: "Link create failed", detail: `${err}` }, 500);
+        }
+    });
+
+    // Login by email/password and return linked devices
     app.post("/user/login", async (c) => {
         const body = await c.req.json().catch(() => null);
         const { email, password } = body ?? {};
@@ -75,6 +92,13 @@ export function registerAuth(app: Hono, deps: dependency) {
         const passwordHash = hashPassword(password);
         if (passwordHash !== user.passwordHash) return c.json({ error: "invalid credentials" }, 401);
 
-        return c.json({ user: { id: user.id, email: user.email, deviceId: user.deviceId } }, 200);
+        const deviceRows = await deps.db
+            .select({ deviceId: userDevices.deviceId })
+            .from(userDevices)
+            .where(eq(userDevices.userId, user.id));
+
+        const deviceIds = deviceRows.map((d) => d.deviceId);
+
+        return c.json({ user: { id: user.id, email: user.email, deviceIds } }, 200);
     });
 }

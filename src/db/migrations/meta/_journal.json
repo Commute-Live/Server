@@ -29,6 +29,13 @@
       "when": 1770411600000,
       "tag": "0003_device_id_text",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1770591000000,
+      "tag": "0004_user_devices_table",
+      "breakpoints": true
     }
   ]
 }
