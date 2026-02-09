@@ -1,0 +1,99 @@
+{
+  "id": "8f4e7fa3-0e6e-4f5b-8e6f-5d2b6c1a7b3c",
+  "prevId": "c6f5a6f4-9f3c-4b8d-a2f9-6a4b5b9c4a11",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.devices": {
+      "name": "devices",
+      "schema": "",
+      "columns": {
+        "id": { "name": "id", "type": "text", "primaryKey": true, "notNull": true },
+        "timezone": { "name": "timezone", "type": "text", "primaryKey": false, "notNull": true, "default": "'UTC'::text" },
+        "preferences": { "name": "preferences", "type": "jsonb", "primaryKey": false, "notNull": true, "default": "'{}'::jsonb" },
+        "created_at": { "name": "created_at", "type": "timestamptz", "primaryKey": false, "notNull": true, "default": "now()" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "primaryKey": false, "notNull": true, "default": "now()" }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.users": {
+      "name": "users",
+      "schema": "",
+      "columns": {
+        "id": { "name": "id", "type": "uuid", "primaryKey": true, "notNull": true, "default": "gen_random_uuid()" },
+        "email": { "name": "email", "type": "text", "primaryKey": false, "notNull": true },
+        "password_hash": { "name": "password_hash", "type": "text", "primaryKey": false, "notNull": true },
+        "created_at": { "name": "created_at", "type": "timestamptz", "primaryKey": false, "notNull": true, "default": "now()" },
+        "updated_at": { "name": "updated_at", "type": "timestamptz", "primaryKey": false, "notNull": true, "default": "now()" }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "users_email_key": { "name": "users_email_key", "columns": ["email"] }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.user_devices": {
+      "name": "user_devices",
+      "schema": "",
+      "columns": {
+        "user_id": { "name": "user_id", "type": "uuid", "primaryKey": false, "notNull": true },
+        "device_id": { "name": "device_id", "type": "text", "primaryKey": false, "notNull": true },
+        "created_at": { "name": "created_at", "type": "timestamptz", "primaryKey": false, "notNull": true, "default": "now()" }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "user_devices_user_id_users_id_fk": {
+          "name": "user_devices_user_id_users_id_fk",
+          "tableFrom": "user_devices",
+          "tableTo": "users",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "user_devices_device_id_devices_id_fk": {
+          "name": "user_devices_device_id_devices_id_fk",
+          "tableFrom": "user_devices",
+          "tableTo": "devices",
+          "columnsFrom": ["device_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "pk_user_devices": {
+          "name": "pk_user_devices",
+          "columns": ["user_id", "device_id"]
+        }
+      },
+      "uniqueConstraints": {
+        "idx_user_devices_device": { "name": "idx_user_devices_device", "columns": ["device_id"] }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {},
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}
