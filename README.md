@@ -28,3 +28,9 @@ bun run db:migrate
 
 After local & server:
 bun run db:migrate
+
+SERVER: View Database information
+docker exec -it commutelive-postgres psql -U commute_live_user -d commutelive
+
+List Tables: \dt
+Describe Table: \d devices
