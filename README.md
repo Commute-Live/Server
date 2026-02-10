@@ -28,3 +28,4 @@ bun run db:migrate
 
 After local & server:
 bun run db:migrate
+!
