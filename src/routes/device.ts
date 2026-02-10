@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { dependency } from "../types/dependency.d.ts";
 import { devices } from "../db/schema/schema.ts";
 
@@ -16,5 +16,26 @@ export function registerDevice(app: Hono, deps: dependency) {
             return c.json({ error: "Device not found" }, 404);
         }
         return c.json(device);
+    });
+
+    app.post("/device/heartbeat", async (c) => {
+        const body = await c.req.json().catch(() => null);
+        const deviceId = body?.deviceId ?? body?.device_id;
+
+        if (!deviceId || typeof deviceId !== "string") {
+            return c.json({ error: "deviceId is required (string)" }, 400);
+        }
+
+        const [updated] = await deps.db
+            .update(devices)
+            .set({ lastActive: sql`now()` })
+            .where(eq(devices.id, deviceId))
+            .returning();
+
+        if (!updated) {
+            return c.json({ error: "Device not found" }, 404);
+        }
+
+        return c.json({ deviceId: updated.id, lastActive: updated.lastActive });
     });
 }
