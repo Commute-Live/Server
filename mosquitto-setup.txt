@@ -1,0 +1,31 @@
+sudo apt update
+sudo apt install mosquitto mosquitto-clients -y
+sudo systemctl enable mosquitto
+sudo systemctl start mosquitto
+
+sudo mosquitto_passwd -c /etc/mosquitto/lebron lebron
+
+sudo nano /etc/mosquitto/mosquitto.conf
+```
+listener 1883
+allow_anonymous false
+password_file /etc/mosquitto/passwd
+```
+
+sudo systemctl restart mosquitto
+
+1. Test - on laptop
+mosquitto_sub -h YOUR_DROPLET_IP -t test
+
+2. droplet
+mosquitto_pub -t test -m hello-from-droplet
+
+Reverse check
+1. Then (on droplet)
+mosquitto_sub -t test
+
+2. Laptop
+mosquitto_pub -h YOUR_DROPLET_IP -t test -m hello-from-laptop
+
+YOUR_DROPLET_IP command
+curl ifconfig.me

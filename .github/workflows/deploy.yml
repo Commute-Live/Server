@@ -15,4 +15,4 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            /root/commute-live/deploy.sh
+            /opt/commute-live/deploy.sh
