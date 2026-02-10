@@ -18,14 +18,17 @@ export function registerDevice(app: Hono, deps: dependency) {
         return c.json(device);
     });
 
-    app.post("/device/heartbeat", async (c) => {
-        const body = await c.req.json().catch(() => null);
-        const deviceId = body?.deviceId ?? body?.device_id;
-
-        if (!deviceId || typeof deviceId !== "string") {
-            return c.json({ error: "deviceId is required (string)" }, 400);
+    app.get("/device/:device_id/heartbeat", async (c) => {
+        const deviceId = c.req.param("device_id");
+        const device = await getDeviceById(deps, deviceId);
+        if (!device) {
+            return c.json({ error: "Device not found" }, 404);
         }
+        return c.json({ deviceId: device.id, lastActive: device.lastActive });
+    });
 
+    app.post("/device/:device_id/heartbeat", async (c) => {
+        const deviceId = c.req.param("device_id");
         const [updated] = await deps.db
             .update(devices)
             .set({ lastActive: sql`now()` })
