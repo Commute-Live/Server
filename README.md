@@ -29,3 +29,19 @@ bun run db:migrate
 After local & server:
 bun run db:migrate
 !
+
+MQTT (local server -> DigitalOcean broker):
+
+Set these in `.env`:
+
+```bash
+MQTT_HOST=YOUR_DROPLET_IP_OR_DOMAIN
+MQTT_PORT=1883
+MQTT_USERNAME=YOUR_MQTT_USERNAME
+MQTT_PASSWORD=YOUR_MQTT_PASSWORD
+MQTT_PROTOCOL=mqtt
+```
+
+On `POST /device/:device_id/heartbeat`, the server publishes to:
+
+`devices/:device_id/commands`
