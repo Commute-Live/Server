@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd /root/commute-live
+cd /opt/commute-live
 git pull origin main
 
 export PATH="/root/.bun/bin:$PATH"
