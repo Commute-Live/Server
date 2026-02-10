@@ -5,6 +5,18 @@ export type Subscription = {
     config: Record<string, string>;
 };
 
+export type LineConfig = {
+    provider: string;
+    line: string;
+    stop?: string;
+    direction?: string;
+};
+
+export type DeviceConfig = {
+    brightness?: number;
+    lines?: LineConfig[];
+};
+
 export type CacheEntry = {
     payload: unknown;
     fetchedAt: number;

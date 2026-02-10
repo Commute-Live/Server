@@ -36,6 +36,20 @@
       "when": 1770591000000,
       "tag": "0004_user_devices_table",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1770759991228,
+      "tag": "0005_device_config",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1770760562839,
+      "tag": "0006_drop_preferences",
+      "breakpoints": true
     }
   ]
 }
