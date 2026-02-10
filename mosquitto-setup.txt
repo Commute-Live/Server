@@ -29,3 +29,6 @@ mosquitto_pub -h YOUR_DROPLET_IP -t test -m hello-from-laptop
 
 YOUR_DROPLET_IP command
 curl ifconfig.me
+
+LOGS
+sudo tail -f /var/log/mosquitto/mosquitto.log
