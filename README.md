@@ -17,6 +17,9 @@ bun run index.ts
 
 This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
 
+Initialize database
+docker compuse up -d
+
 Database Schema:
 
 If on server:
@@ -28,4 +31,9 @@ bun run db:migrate
 
 After local & server:
 bun run db:migrate
-!
+
+SERVER: View Database information
+docker exec -it commutelive-postgres psql -U commute_live_user -d commutelive
+
+List Tables: \dt
+Describe Table: \d devices
