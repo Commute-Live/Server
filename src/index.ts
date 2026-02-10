@@ -3,10 +3,13 @@ import { Hono } from "hono/quick";
 import { startDb } from "./db/db.ts";
 import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
+import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
 
 const { sql, db } = startDb();
 
-const aggregator = startAggregatorEngine();
+const aggregator = startAggregatorEngine({
+    loadSubscriptions: () => loadSubscriptionsFromDb(db),
+});
 
 const app = new Hono();
 

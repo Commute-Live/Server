@@ -25,7 +25,7 @@ Database Schema:
 If on server:
 
 set -a
-source /root/commute-live/app.env
+source /opt/commute-live/app.env
 set +a
 bun run db:migrate
 
