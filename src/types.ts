@@ -47,6 +47,7 @@ export type FanoutMap = Map<string, Set<string>>;
 export interface AggregatorEngine {
     refreshKey(key: string): Promise<void>;
     refreshDevice(deviceId: string): Promise<void>;
+    reloadSubscriptions(): Promise<void>;
     getFanout(): FanoutMap;
     getCache(): Map<string, CacheEntry>;
     stop(): void;
