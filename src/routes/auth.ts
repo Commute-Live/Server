@@ -17,12 +17,10 @@ export function registerAuth(app: Hono, deps: dependency) {
         }
 
         const timezone = typeof body?.timezone === "string" ? body.timezone : "UTC";
-        const preferences = typeof body?.preferences === "object" && body.preferences !== null ? body.preferences : {};
-
         try {
             const [row] = await deps.db
                 .insert(devices)
-                .values({ id, timezone, preferences })
+                .values({ id, timezone })
                 .returning();
             return c.json({ device: row }, 201);
         } catch (err) {
