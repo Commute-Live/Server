@@ -98,6 +98,10 @@ export function registerConfig(app: Hono, deps: dependency) {
             .where(eq(devices.id, deviceId))
             .returning({ config: devices.config });
 
+        // Refresh engine with new config
+        await deps.aggregator.reloadSubscriptions();
+        await deps.aggregator.refreshDevice(deviceId);
+
         return c.json({ deviceId, config: updated?.config ?? nextConfig });
     });
 }

@@ -108,7 +108,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         }
     };
 
-    const bootstrap = async () => {
+    const rebuild = async () => {
         const subs = await loadSubscriptions();
         const maps = buildFanoutMaps(subs, providers);
         fanout = maps.fanout;
@@ -116,7 +116,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         scheduleFetches();
     };
 
-    const ready = bootstrap();
+    const ready = rebuild();
 
     refreshTimer = setInterval(scheduleFetches, refreshIntervalMs);
     pushTimer = setInterval(pushCachedPayloads, pushIntervalMs);
@@ -143,6 +143,10 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         await Promise.all(promises);
     };
 
+    const reloadSubscriptions = async () => {
+        await rebuild();
+    };
+
     const stop = () => {
         if (refreshTimer) clearInterval(refreshTimer);
         if (pushTimer) clearInterval(pushTimer);
@@ -151,6 +155,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     return {
         refreshKey,
         refreshDevice,
+        reloadSubscriptions,
         getFanout: () => fanout,
         getCache: () => cacheMap(),
         stop,
