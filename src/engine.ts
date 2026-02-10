@@ -3,11 +3,10 @@ import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import "./providers/mta.ts";
 import "./providers/mta-bus.ts";
-import { loadSubscriptions as loadMockSubscriptions } from "./mockdb.ts";
 
 type EngineOptions = {
     providers?: Map<string, ProviderPlugin>;
-    loadSubscriptions?: () => Promise<Subscription[]>;
+    loadSubscriptions: () => Promise<Subscription[]>;
     refreshIntervalMs?: number;
     pushIntervalMs?: number;
     publish?: (topic: string, payload: unknown) => void;
@@ -47,9 +46,9 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     return { fanout, deviceToKeys };
 };
 
-export function startAggregatorEngine(options: EngineOptions = {}): AggregatorEngine {
+export function startAggregatorEngine(options: EngineOptions): AggregatorEngine {
     const providers = options.providers ?? providerRegistry;
-    const loadSubscriptions = options.loadSubscriptions ?? loadMockSubscriptions;
+    const loadSubscriptions = options.loadSubscriptions;
     const publish = options.publish ?? defaultPublish;
     const refreshIntervalMs = options.refreshIntervalMs ?? 1000;
     const pushIntervalMs = options.pushIntervalMs ?? 30_000;
