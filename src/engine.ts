@@ -1,6 +1,7 @@
 import { cacheMap, getCacheEntry, markExpired, setCacheEntry } from "./cache.ts";
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
+import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import "./providers/mta.ts";
 import "./providers/mta-bus.ts";
 
@@ -69,15 +70,19 @@ const buildDeviceCommandPayload = (key: string, payload: unknown) => {
     const lineFromKey = typeof params.line === "string" ? params.line : "";
     const line = lineFromPayload || lineFromKey;
 
+    const stopId =
+        typeof body.stop === "string"
+            ? body.stop
+            : typeof params.stop === "string" && params.stop.length > 0
+              ? params.stop
+              : undefined;
+    const stopName = stopId ? resolveStopName(stopId) : undefined;
+
     return {
         provider: typeof body.provider === "string" ? body.provider : undefined,
         line: line || undefined,
-        stop:
-            typeof body.stop === "string"
-                ? body.stop
-                : typeof params.stop === "string" && params.stop.length > 0
-                  ? params.stop
-                  : undefined,
+        stop: stopName ?? stopId,
+        stopId,
         direction:
             typeof body.direction === "string"
                 ? body.direction
