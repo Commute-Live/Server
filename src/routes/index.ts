@@ -7,6 +7,7 @@ import { registerAuth } from "./auth.ts";
 import { registerRefresh } from "./refresh.ts";
 import { registerConfig } from "./config.ts";
 import { registerStops } from "./stops.ts";
+import { registerDbAdmin } from "./db_admin.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
     registerRoot(app);
@@ -16,4 +17,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerRefresh(app, deps);
     registerConfig(app, deps);
     registerStops(app, deps);
+    registerDbAdmin(app, deps);
 }
