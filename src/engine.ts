@@ -59,6 +59,17 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
 
+    const publishToDeviceTopics = (key: string, payload: unknown) => {
+        const deviceIds = fanout.get(key);
+        if (!deviceIds?.size) {
+            return;
+        }
+
+        for (const deviceId of deviceIds) {
+            publish(`/device/${deviceId}/commands`, payload);
+        }
+    };
+
     const fetchKey = async (key: string) => {
         if (inflight.has(key)) {
             return inflight.get(key);
@@ -78,7 +89,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
                 setCacheEntry(key, result.payload, result.ttlSeconds, now);
-                publish(`commutelive/key/${key}`, result.payload);
+                publishToDeviceTopics(key, result.payload);
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
             } finally {
@@ -104,7 +115,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const pushCachedPayloads = () => {
         for (const [key, entry] of cacheMap()) {
             if (!fanout.has(key)) continue;
-            publish(`commutelive/key/${key}`, entry.payload);
+            publishToDeviceTopics(key, entry.payload);
         }
     };
 
