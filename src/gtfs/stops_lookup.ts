@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 let stopNameById: Map<string, string> | null = null;
+let cachedStopOptions: Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }> | null = null;
 
 function parseCsvLine(line: string): string[] {
     const values: string[] = [];
@@ -87,4 +88,25 @@ export function resolveStopName(stopId: string): string | undefined {
     const id = stopId.trim();
     if (!id) return undefined;
     return loadStopMap().get(id);
+}
+
+export function listStops(): Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }> {
+    if (cachedStopOptions) return cachedStopOptions;
+
+    const options: Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }> = [];
+    for (const [stopId, stop] of loadStopMap().entries()) {
+        let direction: "N" | "S" | "" = "";
+        if (stopId.endsWith("N")) direction = "N";
+        else if (stopId.endsWith("S")) direction = "S";
+        options.push({ stopId, stop, direction });
+    }
+
+    options.sort((a, b) => {
+        const byStop = a.stop.localeCompare(b.stop);
+        if (byStop !== 0) return byStop;
+        return a.stopId.localeCompare(b.stopId);
+    });
+
+    cachedStopOptions = options;
+    return options;
 }

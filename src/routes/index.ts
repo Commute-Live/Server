@@ -6,6 +6,7 @@ import { registerDevice } from "./device.ts";
 import { registerAuth } from "./auth.ts";
 import { registerRefresh } from "./refresh.ts";
 import { registerConfig } from "./config.ts";
+import { registerStops } from "./stops.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
     registerRoot(app);
@@ -14,4 +15,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerAuth(app, deps);
     registerRefresh(app, deps);
     registerConfig(app, deps);
+    registerStops(app, deps);
 }
