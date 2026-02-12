@@ -112,6 +112,26 @@ const sampleStops = (feed: transit_realtime.FeedMessage, limit = 12) => {
     return samples;
 };
 
+const pickUpcomingArrivals = (
+    arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }>,
+    nowMs: number
+) => {
+    const graceMs = 15_000;
+    const seen = new Set<string>();
+    const filtered: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }> = [];
+
+    for (const item of arrivals) {
+        const ts = Date.parse(item.arrivalTime);
+        if (!Number.isFinite(ts)) continue;
+        if (ts < nowMs - graceMs) continue;
+        if (seen.has(item.arrivalTime)) continue;
+        seen.add(item.arrivalTime);
+        filtered.push(item);
+    }
+
+    return filtered.sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
+};
+
 const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
     const line = params.line;
@@ -137,6 +157,8 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
         // Fallback: return first stops without filtering so something is visible for debugging
         arrivals = normalizeSubwayArrivals(feed, { line, direction: params.direction });
     }
+
+    arrivals = pickUpcomingArrivals(arrivals, ctx.now);
 
     return {
         payload: {
