@@ -40,7 +40,7 @@ function getClient() {
         console.log(`MQTT connected to ${config.protocol}://${config.host}:${config.port}`);
     });
 
-    client.on("error", (err) => {
+    client.on("error", (err: { message: any; }) => {
         console.error("MQTT error:", err.message);
     });
 
@@ -52,7 +52,7 @@ export async function publish(topic: string, payload: string) {
     if (!mqttClient) return false;
 
     await new Promise<void>((resolve, reject) => {
-        mqttClient.publish(topic, payload, { qos: 0 }, (err) => {
+        mqttClient.publish(topic, payload, { qos: 0 }, (err: any) => {
             if (err) return reject(err);
             return resolve();
         });

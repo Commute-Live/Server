@@ -51,7 +51,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const loadSubscriptions = options.loadSubscriptions;
     const publish = options.publish ?? defaultPublish;
     const refreshIntervalMs = options.refreshIntervalMs ?? 1000;
-    const pushIntervalMs = options.pushIntervalMs ?? 30_000;
+    const pushIntervalMs = options.pushIntervalMs ?? 15_000;
 
     const inflight = new Map<string, Promise<void>>();
     let fanout: FanoutMap = new Map();
@@ -78,7 +78,6 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
                 setCacheEntry(key, result.payload, result.ttlSeconds, now);
-                publish(`commutelive/key/${key}`, result.payload);
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
             } finally {
@@ -88,6 +87,27 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
 
         inflight.set(key, work);
         return work;
+    };
+
+    const publishPayloads = (key: string) => {
+        const deviceIds = fanout.get(key);
+        if (!deviceIds?.size) {
+            console.log("[MQTT] no device subscribers for key", key);
+            return;
+        }
+
+        const { params } = parseKeySegments(key);
+        const msg = {
+            type: "render_route",
+            route: params.line ?? "unknown",
+            sentAt: new Date().toISOString(),
+        };
+
+        for (const deviceId of deviceIds) {
+            const topic = `/device/${deviceId}/commands`;
+            console.log("[MQTT] publish device command", { deviceId, key, topic, msg });
+            publish(topic, msg);
+        }
     };
 
     const scheduleFetches = () => {
@@ -102,9 +122,9 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     };
 
     const pushCachedPayloads = () => {
-        for (const [key, entry] of cacheMap()) {
+        for (const [key] of cacheMap()) {
             if (!fanout.has(key)) continue;
-            publish(`commutelive/key/${key}`, entry.payload);
+            publishPayloads(key);
         }
     };
 

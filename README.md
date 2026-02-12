@@ -53,3 +53,6 @@ docker exec -it commutelive-postgres psql -U commute_live_user -d commutelive
 
 List Tables: \dt
 Describe Table: \d devices
+
+View Logs:
+journalctl -u commute-live -f

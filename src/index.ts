@@ -4,11 +4,19 @@ import { startDb } from "./db/db.ts";
 import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
 import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
+import { publish as mqttPublish } from "./mqtt/mqtt.ts";
 
 const { sql, db } = startDb();
 
 const aggregator = startAggregatorEngine({
     loadSubscriptions: () => loadSubscriptionsFromDb(db),
+    publish: (topic, payload) => {
+        const json =
+            typeof payload === "string" ? payload : JSON.stringify(payload);
+        void mqttPublish(topic, json).catch((err) =>
+            console.error("[MQTT publish error]", err),
+        );
+    },
 });
 
 const app = new Hono();
