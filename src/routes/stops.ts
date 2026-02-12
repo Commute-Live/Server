@@ -1,6 +1,6 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
-import { listStops } from "../gtfs/stops_lookup.ts";
+import { listLinesForStop, listStops, resolveStopName } from "../gtfs/stops_lookup.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
     app.get("/stops", (c) => {
@@ -15,5 +15,19 @@ export function registerStops(app: Hono, _deps: dependency) {
 
         return c.json({ count: stops.length, stops: stops.slice(0, limit) });
     });
-}
 
+    app.get("/stops/:stopId/lines", async (c) => {
+        const stopId = (c.req.param("stopId") ?? "").trim().toUpperCase();
+        if (!stopId) {
+            return c.json({ error: "stopId is required" }, 400);
+        }
+
+        const stop = resolveStopName(stopId);
+        if (!stop) {
+            return c.json({ error: "Stop not found" }, 404);
+        }
+
+        const lines = await listLinesForStop(stopId);
+        return c.json({ stopId, stop, lines });
+    });
+}
