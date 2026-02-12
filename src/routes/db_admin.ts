@@ -72,9 +72,27 @@ export function registerDbAdmin(app: Hono, deps: dependency) {
             return c.text("Unauthorized", 401);
         }
 
-        const query = (c.req.query("q") ?? "").trim();
+        const selectedTable = (c.req.query("table") ?? "").trim();
+        const escapeSqlIdent = (value: string) => `"${value.replaceAll('"', '""')}"`;
+        const defaultTableQuery = selectedTable
+            ? `select * from ${escapeSqlIdent(selectedTable)}`
+            : "";
+        const query = (c.req.query("q") ?? defaultTableQuery).trim();
         let error = "";
         let rows: Array<Record<string, unknown>> = [];
+        let tables: string[] = [];
+
+        try {
+            const tableRows = (await deps.sql`
+                select table_name
+                from information_schema.tables
+                where table_schema = 'public'
+                order by table_name asc
+            `) as Array<{ table_name: string }>;
+            tables = tableRows.map((row) => row.table_name);
+        } catch (err) {
+            error = err instanceof Error ? `Failed to list tables: ${err.message}` : String(err);
+        }
 
         if (query) {
             if (!isReadOnlyQuery(query)) {
@@ -97,29 +115,61 @@ export function registerDbAdmin(app: Hono, deps: dependency) {
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>DB Admin</title>
   <style>
-    body { font-family: ui-sans-serif, -apple-system, sans-serif; margin: 24px; color: #111; }
+    * { box-sizing: border-box; }
+    body { font-family: ui-sans-serif, -apple-system, sans-serif; margin: 0; color: #111; background: #f2f4f7; }
+    .wrap { display: flex; min-height: 100vh; }
+    .side { width: 300px; border-right: 1px solid #d8dde4; background: #fff; padding: 16px; overflow: auto; }
+    .main { flex: 1; padding: 18px; overflow: auto; }
     h1 { margin: 0 0 12px 0; font-size: 22px; }
+    h2 { margin: 0 0 8px 0; font-size: 14px; color: #333; }
     form { margin: 0 0 16px 0; }
-    textarea { width: 100%; min-height: 120px; font-family: ui-monospace, monospace; font-size: 13px; }
-    button { margin-top: 8px; padding: 8px 12px; }
+    textarea { width: 100%; min-height: 120px; font-family: ui-monospace, monospace; font-size: 13px; border: 1px solid #cfd6df; border-radius: 8px; padding: 10px; background: #fff; }
+    button { margin-top: 8px; padding: 8px 12px; border-radius: 8px; border: 1px solid #cfd6df; background: #fff; cursor: pointer; }
     .note { color: #555; font-size: 13px; margin: 8px 0; }
     .err { color: #a40000; font-weight: 600; margin: 8px 0; }
-    table { border-collapse: collapse; width: 100%; margin-top: 12px; }
-    th, td { border: 1px solid #ddd; text-align: left; padding: 6px; font-size: 12px; }
-    th { background: #f6f6f6; }
+    .table-list { margin: 0; padding: 0; list-style: none; border: 1px solid #e2e7ee; border-radius: 10px; overflow: hidden; }
+    .table-link { display: block; padding: 10px 12px; text-decoration: none; color: #1d2733; border-bottom: 1px solid #edf1f5; font-size: 13px; }
+    .table-link:hover { background: #f4f8ff; }
+    .table-link.active { background: #dfeeff; color: #0f3d70; font-weight: 700; }
+    .panel { border: 1px solid #d8dde4; background: #fff; border-radius: 12px; padding: 14px; box-shadow: 0 1px 2px rgba(0,0,0,0.03); }
+    .result { margin-top: 14px; }
+    table { border-collapse: collapse; width: 100%; margin-top: 12px; background: #fff; }
+    th, td { border: 1px solid #dde3ea; text-align: left; padding: 6px; font-size: 12px; vertical-align: top; }
+    th { background: #f7f9fb; position: sticky; top: 0; }
   </style>
 </head>
 <body>
-  <h1>Database Explorer</h1>
-  <p class="note">Read-only mode. Max ${MAX_ROWS} rows. Protected by HTTP Basic Auth.</p>
-  <form method="get" action="/admin/db">
-    <textarea name="q" placeholder="select * from devices">${escapeHtml(query)}</textarea>
-    <br />
-    <button type="submit">Run Query</button>
-  </form>
-  ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
-  ${rows.length ? `<p class="note">Returned ${rows.length} row(s).</p>` : ""}
-  ${renderRows(rows)}
+  <div class="wrap">
+    <aside class="side">
+      <h2>Tables</h2>
+      <p class="note">Click a table to preview rows.</p>
+      ${
+          tables.length
+              ? `<ul class="table-list">${tables
+                    .map((tableName) => {
+                        const active = tableName === selectedTable ? "active" : "";
+                        return `<li><a class="table-link ${active}" href="/admin/db?table=${encodeURIComponent(tableName)}">${escapeHtml(tableName)}</a></li>`;
+                    })
+                    .join("")}</ul>`
+              : `<p class="note">No tables found.</p>`
+      }
+    </aside>
+    <main class="main">
+      <div class="panel">
+        <h1>Database Explorer</h1>
+        <p class="note">Read-only mode. Max ${MAX_ROWS} rows. Protected by HTTP Basic Auth.</p>
+        <form method="get" action="/admin/db">
+          ${selectedTable ? `<input type="hidden" name="table" value="${escapeHtml(selectedTable)}" />` : ""}
+          <textarea name="q" placeholder="select * from devices">${escapeHtml(query)}</textarea>
+          <br />
+          <button type="submit">Run Query</button>
+        </form>
+        ${error ? `<p class="err">${escapeHtml(error)}</p>` : ""}
+        ${rows.length ? `<p class="note">Returned ${rows.length} row(s).</p>` : ""}
+        <div class="result">${renderRows(rows)}</div>
+      </div>
+    </main>
+  </div>
 </body>
 </html>`;
 
