@@ -36,10 +36,22 @@ const pickFeedUrl = (line?: string): string | null => {
     return FEED_MAP[key] ?? null;
 };
 
+const normalizeLine = (line?: string) => (line ? line.trim().toUpperCase() : "");
+
+const normalizeDirection = (direction?: string) => {
+    if (!direction) return "";
+    const value = direction.trim().toUpperCase();
+    return value === "N" || value === "S" ? value : "";
+};
+
 const normalizeSubwayArrivals = (
     feed: transit_realtime.FeedMessage,
-    stop: string | undefined
+    filters: { line?: string; stop?: string; direction?: string }
 ) => {
+    const line = normalizeLine(filters.line);
+    const stop = filters.stop?.trim();
+    const direction = normalizeDirection(filters.direction);
+
     const items: Array<{
         arrivalTime: string;
         scheduledTime: string | null;
@@ -47,10 +59,16 @@ const normalizeSubwayArrivals = (
     }> = [];
 
     for (const entity of feed.entity) {
-        if (!entity.tripUpdate) continue;
-        for (const stu of entity.tripUpdate.stopTimeUpdate ?? []) {
+        const tripUpdate = entity.tripUpdate;
+        if (!tripUpdate) continue;
+
+        const routeId = normalizeLine(tripUpdate.trip?.routeId);
+        if (line && routeId && routeId !== line) continue;
+
+        for (const stu of tripUpdate.stopTimeUpdate ?? []) {
             const stopId = stu.stopId ?? "unknown";
             if (stop && stopId !== stop) continue;
+            if (direction && !stopId.endsWith(direction)) continue;
 
             const tsSeconds = stu.arrival?.time ?? stu.departure?.time;
             if (!tsSeconds) continue;
@@ -107,13 +125,17 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
     }
     const buffer = Buffer.from(await res.arrayBuffer());
     const feed = transit_realtime.FeedMessage.decode(buffer);
-    let arrivals = normalizeSubwayArrivals(feed, params.stop);
+    let arrivals = normalizeSubwayArrivals(feed, {
+        line,
+        stop: params.stop,
+        direction: params.direction,
+    });
 
     if (!arrivals.length && params.stop) {
         const samples = sampleStops(feed);
         ctx.log?.("[MTA]", "no arrivals for stop filter; sample stopIds", { stop: params.stop, samples });
         // Fallback: return first stops without filtering so something is visible for debugging
-        arrivals = normalizeSubwayArrivals(feed, undefined);
+        arrivals = normalizeSubwayArrivals(feed, { line, direction: params.direction });
     }
 
     return {

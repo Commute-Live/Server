@@ -62,7 +62,17 @@ const extractNextArrivals = (payload: unknown) => {
     });
 };
 
-const buildDeviceCommandPayload = (key: string, payload: unknown) => {
+type DeviceLinePayload = {
+    provider?: string;
+    line?: string;
+    stop?: string;
+    stopId?: string;
+    direction?: string;
+    fetchedAt?: string;
+    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number }>;
+};
+
+const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
     const { params } = parseKeySegments(key);
     const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
 
@@ -71,8 +81,8 @@ const buildDeviceCommandPayload = (key: string, payload: unknown) => {
     const line = lineFromPayload || lineFromKey;
 
     const stopId =
-        typeof body.stop === "string"
-            ? body.stop
+        typeof body.stopId === "string"
+            ? body.stopId
             : typeof params.stop === "string" && params.stop.length > 0
               ? params.stop
               : undefined;
@@ -94,6 +104,32 @@ const buildDeviceCommandPayload = (key: string, payload: unknown) => {
     };
 };
 
+const buildDeviceCommandPayload = (keys: Set<string>) => {
+    const lines: DeviceLinePayload[] = [];
+
+    for (const key of keys) {
+        const entry = getCacheEntry(key);
+        if (!entry) continue;
+        const linePayload = buildDeviceLinePayload(key, entry.payload);
+        if (!linePayload.line) continue;
+        lines.push(linePayload);
+    }
+
+    lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
+
+    const primary = lines[0];
+    return {
+        provider: primary?.provider,
+        line: primary?.line,
+        stop: primary?.stop,
+        stopId: primary?.stopId,
+        direction: primary?.direction,
+        fetchedAt: new Date().toISOString(),
+        nextArrivals: primary?.nextArrivals ?? [],
+        lines,
+    };
+};
+
 export function startAggregatorEngine(options: EngineOptions): AggregatorEngine {
     const providers = options.providers ?? providerRegistry;
     const loadSubscriptions = options.loadSubscriptions;
@@ -107,17 +143,14 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
 
-    const publishToDeviceTopics = (key: string, payload: unknown) => {
-        const deviceIds = fanout.get(key);
-        if (!deviceIds?.size) {
+    const publishDeviceCommand = (deviceId: string) => {
+        const keys = deviceToKeys.get(deviceId);
+        if (!keys?.size) {
             return;
         }
 
-        const command = buildDeviceCommandPayload(key, payload);
-
-        for (const deviceId of deviceIds) {
-            publish(`/device/${deviceId}/commands`, command);
-        }
+        const command = buildDeviceCommandPayload(keys);
+        publish(`/device/${deviceId}/commands`, command);
     };
 
     const fetchKey = async (key: string) => {
@@ -139,7 +172,12 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
                 setCacheEntry(key, result.payload, result.ttlSeconds, now);
-                publishToDeviceTopics(key, result.payload);
+                const deviceIds = fanout.get(key);
+                if (deviceIds?.size) {
+                    for (const deviceId of deviceIds) {
+                        publishDeviceCommand(deviceId);
+                    }
+                }
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
             } finally {
@@ -163,9 +201,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     };
 
     const pushCachedPayloads = () => {
-        for (const [key, entry] of cacheMap()) {
-            if (!fanout.has(key)) continue;
-            publishToDeviceTopics(key, entry.payload);
+        for (const deviceId of deviceToKeys.keys()) {
+            publishDeviceCommand(deviceId);
         }
     };
 
