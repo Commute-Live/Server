@@ -46,6 +46,49 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     return { fanout, deviceToKeys };
 };
 
+const extractNextArrivals = (payload: unknown) => {
+    if (!payload || typeof payload !== "object") return [];
+    const body = payload as Record<string, unknown>;
+    const arrivalsRaw = body.arrivals;
+    if (!Array.isArray(arrivalsRaw)) return [];
+
+    return arrivalsRaw.slice(0, 3).map((item) => {
+        const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+        return {
+            arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
+            delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
+        };
+    });
+};
+
+const buildDeviceCommandPayload = (key: string, payload: unknown) => {
+    const { params } = parseKeySegments(key);
+    const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+
+    const lineFromPayload = typeof body.line === "string" ? body.line : "";
+    const lineFromKey = typeof params.line === "string" ? params.line : "";
+    const line = lineFromPayload || lineFromKey;
+
+    return {
+        provider: typeof body.provider === "string" ? body.provider : undefined,
+        line: line || undefined,
+        stop:
+            typeof body.stop === "string"
+                ? body.stop
+                : typeof params.stop === "string" && params.stop.length > 0
+                  ? params.stop
+                  : undefined,
+        direction:
+            typeof body.direction === "string"
+                ? body.direction
+                : typeof params.direction === "string" && params.direction.length > 0
+                  ? params.direction
+                  : undefined,
+        fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
+        nextArrivals: extractNextArrivals(payload),
+    };
+};
+
 export function startAggregatorEngine(options: EngineOptions): AggregatorEngine {
     const providers = options.providers ?? providerRegistry;
     const loadSubscriptions = options.loadSubscriptions;
@@ -65,8 +108,10 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
             return;
         }
 
+        const command = buildDeviceCommandPayload(key, payload);
+
         for (const deviceId of deviceIds) {
-            publish(`/device/${deviceId}/commands`, payload);
+            publish(`/device/${deviceId}/commands`, command);
         }
     };
 
