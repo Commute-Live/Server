@@ -30,6 +30,38 @@ const FEED_MAP: Record<string, string> = {
     SI: "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-si",
 };
 
+const FEED_CACHE_TTL_MS = 15_000;
+
+const feedCache = new Map<string, { feed: transit_realtime.FeedMessage; expiresAt: number }>();
+const inflightFeeds = new Map<string, Promise<transit_realtime.FeedMessage>>();
+
+const fetchFeed = async (feedUrl: string, now: number, log?: FetchContext["log"]) => {
+    const cached = feedCache.get(feedUrl);
+    if (cached && cached.expiresAt > now) return cached.feed;
+
+    const existing = inflightFeeds.get(feedUrl);
+    if (existing) return existing;
+
+    const work = (async () => {
+        const res = await fetch(feedUrl);
+        if (!res.ok) {
+            throw new Error(`MTA feed error ${res.status} ${res.statusText}`);
+        }
+        const buffer = Buffer.from(await res.arrayBuffer());
+        const feed = transit_realtime.FeedMessage.decode(buffer);
+        feedCache.set(feedUrl, { feed, expiresAt: now + FEED_CACHE_TTL_MS });
+        inflightFeeds.delete(feedUrl);
+        return feed;
+    })().catch((err) => {
+        inflightFeeds.delete(feedUrl);
+        log?.("[MTA]", "feed fetch failed", { feedUrl, error: err instanceof Error ? err.message : String(err) });
+        throw err;
+    });
+
+    inflightFeeds.set(feedUrl, work);
+    return work;
+};
+
 const pickFeedUrl = (line?: string): string | null => {
     if (!line) return null;
     const key = line.toString().trim().toUpperCase();
@@ -139,12 +171,8 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
     if (!feedUrl) {
         throw new Error(`No feed mapping for line ${line}`);
     }
-    const res = await fetch(feedUrl);
-    if (!res.ok) {
-        throw new Error(`MTA feed error ${res.status} ${res.statusText}`);
-    }
-    const buffer = Buffer.from(await res.arrayBuffer());
-    const feed = transit_realtime.FeedMessage.decode(buffer);
+
+    const feed = await fetchFeed(feedUrl, ctx.now, ctx.log);
     let arrivals = normalizeSubwayArrivals(feed, {
         line,
         stop: params.stop,
