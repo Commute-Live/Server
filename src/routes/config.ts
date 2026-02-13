@@ -5,6 +5,8 @@ import { devices } from "../db/schema/schema.ts";
 import type { DeviceConfig, LineConfig } from "../types.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
+const DEFAULT_DISPLAY_TYPE = 1;
+const DEFAULT_SCROLLING = false;
 
 const validateLines = (lines: unknown): lines is LineConfig[] => {
     if (!Array.isArray(lines)) return false;
@@ -15,6 +17,8 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
         if (typeof candidate.line !== "string") return false;
         if (candidate.stop !== undefined && typeof candidate.stop !== "string") return false;
         if (candidate.direction !== undefined && typeof candidate.direction !== "string") return false;
+        if (candidate.displayType !== undefined && typeof candidate.displayType !== "number") return false;
+        if (candidate.scrolling !== undefined && typeof candidate.scrolling !== "boolean") return false;
         return true;
     });
 };
@@ -31,7 +35,21 @@ const normalizeConfig = (existing: DeviceConfig | null | undefined, updates: Par
     const lines =
         Array.isArray(updates.lines) ? updates.lines : Array.isArray(current.lines) ? current.lines : [];
 
-    return { ...current, ...updates, brightness, lines };
+    const displayType =
+        typeof updates.displayType === "number" && !Number.isNaN(updates.displayType)
+            ? updates.displayType
+            : typeof current.displayType === "number" && !Number.isNaN(current.displayType)
+              ? current.displayType
+              : DEFAULT_DISPLAY_TYPE;
+
+    const scrolling =
+        typeof updates.scrolling === "boolean"
+            ? updates.scrolling
+            : typeof current.scrolling === "boolean"
+              ? current.scrolling
+              : DEFAULT_SCROLLING;
+
+    return { ...current, ...updates, brightness, lines, displayType, scrolling };
 };
 
 export function registerConfig(app: Hono, deps: dependency) {
@@ -68,12 +86,29 @@ export function registerConfig(app: Hono, deps: dependency) {
                 }
             }
 
+            if ("displayType" in (body as Record<string, unknown>)) {
+                const maybeDisplay = (body as Record<string, unknown>).displayType;
+                if (typeof maybeDisplay === "number" && !Number.isNaN(maybeDisplay)) {
+                    updates.displayType = maybeDisplay;
+                }
+            }
+
+            if ("scrolling" in (body as Record<string, unknown>)) {
+                const maybeScrolling = (body as Record<string, unknown>).scrolling;
+                if (typeof maybeScrolling === "boolean") {
+                    updates.scrolling = maybeScrolling;
+                }
+            }
+
             if ("lines" in (body as Record<string, unknown>)) {
                 const proposed = (body as Record<string, unknown>).lines;
                 if (proposed === undefined || proposed === null) {
                     updates.lines = [];
                 } else if (!validateLines(proposed)) {
-                    return c.json({ error: "lines must be an array of { provider, line, stop?, direction? }" }, 400);
+                    return c.json(
+                        { error: "lines must be an array of { provider, line, stop?, direction?, displayType?, scrolling? }" },
+                        400
+                    );
                 } else {
                     updates.lines = proposed as LineConfig[];
                 }

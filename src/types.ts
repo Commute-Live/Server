@@ -3,6 +3,8 @@ export type Subscription = {
     provider: string;
     type: string;
     config: Record<string, string>;
+    displayType?: number;
+    scrolling?: boolean;
 };
 
 export type LineConfig = {
@@ -10,10 +12,14 @@ export type LineConfig = {
     line: string;
     stop?: string;
     direction?: string;
+    displayType?: number;
+    scrolling?: boolean;
 };
 
 export type DeviceConfig = {
     brightness?: number;
+    displayType?: number;
+    scrolling?: boolean;
     lines?: LineConfig[];
 };
 

@@ -17,10 +17,15 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
     for (const row of rows) {
         const cfg = (row.config ?? {}) as DeviceConfig;
         const lines = Array.isArray(cfg.lines) ? cfg.lines.filter(isLineConfig) : [];
+        const deviceDisplayType = typeof cfg.displayType === "number" ? cfg.displayType : 1;
+        const deviceScrolling = typeof cfg.scrolling === "boolean" ? cfg.scrolling : false;
 
         for (const line of lines) {
             // Require minimal fields; skip malformed entries
             if (!line.provider || !line.line) continue;
+
+            const displayType = typeof line.displayType === "number" ? line.displayType : deviceDisplayType;
+            const scrolling = typeof line.scrolling === "boolean" ? line.scrolling : deviceScrolling;
 
             subs.push({
                 deviceId: row.id,
@@ -31,6 +36,8 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
                     stop: line.stop ?? "",
                     direction: line.direction ?? "",
                 },
+                displayType,
+                scrolling,
             });
         }
     }

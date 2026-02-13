@@ -14,6 +14,11 @@ type EngineOptions = {
     publish?: (topic: string, payload: unknown) => void;
 };
 
+type DeviceOptions = {
+    displayType: number;
+    scrolling: boolean;
+};
+
 const defaultPublish = (topic: string, payload: unknown) => {
     console.log("[PUBLISH]", topic, JSON.stringify(payload));
 };
@@ -22,6 +27,7 @@ const defaultPublish = (topic: string, payload: unknown) => {
 const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPlugin>) => {
     const fanout: FanoutMap = new Map();
     const deviceToKeys = new Map<string, Set<string>>();
+    const deviceOptions = new Map<string, DeviceOptions>();
 
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
@@ -43,9 +49,16 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
             deviceToKeys.set(sub.deviceId, new Set());
         }
         deviceToKeys.get(sub.deviceId)!.add(key);
+
+        if (!deviceOptions.has(sub.deviceId)) {
+            deviceOptions.set(sub.deviceId, {
+                displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
+                scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
+            });
+        }
     }
 
-    return { fanout, deviceToKeys };
+    return { fanout, deviceToKeys, deviceOptions };
 };
 
 const extractNextArrivals = (payload: unknown) => {
@@ -111,7 +124,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
     };
 };
 
-const buildDeviceCommandPayload = (keys: Set<string>) => {
+const buildDeviceCommandPayload = (keys: Set<string>, deviceOptions?: DeviceOptions) => {
     const lines: DeviceLinePayload[] = [];
 
     for (const key of keys) {
@@ -126,6 +139,8 @@ const buildDeviceCommandPayload = (keys: Set<string>) => {
 
     const primary = lines[0];
     return {
+        displayType: deviceOptions?.displayType ?? 1,
+        scrolling: deviceOptions?.scrolling ?? false,
         provider: primary?.provider,
         line: primary?.line,
         stop: primary?.stop,
@@ -148,6 +163,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const inflight = new Map<string, Promise<void>>();
     let fanout: FanoutMap = new Map();
     let deviceToKeys = new Map<string, Set<string>>();
+    let deviceOptions = new Map<string, DeviceOptions>();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -157,7 +173,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
             return;
         }
 
-        const command = buildDeviceCommandPayload(keys);
+        const command = buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
         publish(`/device/${deviceId}/commands`, command);
     };
 
@@ -219,6 +235,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         const maps = buildFanoutMaps(subs, providers);
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
+        deviceOptions = maps.deviceOptions;
         scheduleFetches();
     };
 
