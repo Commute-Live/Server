@@ -49,6 +49,18 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
         return json?.Siri?.ServiceDelivery?.StopMonitoringDelivery?.[0]?.MonitoredStopVisit ?? [];
     };
 
+    const pickStopName = (visits: any[]) => {
+        for (const visit of visits) {
+            const name = visit?.MonitoredVehicleJourney?.MonitoredCall?.StopPointName;
+            if (typeof name === "string" && name.trim()) return name.trim();
+            if (Array.isArray(name) && name.length) {
+                const first = name.find((v) => typeof v === "string" && v.trim());
+                if (first) return first.trim();
+            }
+        }
+        return undefined;
+    };
+
     // First attempt with provided filters
     let visits = await fetchVisits({ line, direction });
     // Fallback: if empty and filters were applied, retry without line/direction to avoid over-filtering
@@ -56,6 +68,8 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
         ctx.log?.("[BUS]", "no results with line/direction filters, retrying broad", { line, direction });
         visits = await fetchVisits({});
     }
+
+    const stopName = pickStopName(visits);
 
     const arrivals = visits.slice(0, 10).map((visit: any) => {
         const mvp = visit.MonitoredVehicleJourney?.MonitoredCall ?? {};
@@ -79,6 +93,7 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
             stop,
             line,
             direction,
+            stopName,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },

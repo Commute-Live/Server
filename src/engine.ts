@@ -88,7 +88,8 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             : typeof params.stop === "string" && params.stop.length > 0
               ? params.stop
               : undefined;
-    const stopName = stopId ? resolveStopName(stopId) : undefined;
+    const stopNameFromPayload = typeof body.stopName === "string" && body.stopName.length > 0 ? body.stopName : undefined;
+    const stopName = stopNameFromPayload ?? (stopId ? resolveStopName(stopId) : undefined);
     const directionFromPayload = typeof body.direction === "string" ? body.direction : undefined;
     const directionFromKey = typeof params.direction === "string" && params.direction.length > 0 ? params.direction : undefined;
     const direction = directionFromPayload ?? directionFromKey;
