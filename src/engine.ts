@@ -2,6 +2,7 @@ import { cacheMap, getCacheEntry, markExpired, setCacheEntry } from "./cache.ts"
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
+import { resolveDirectionLabel } from "./transit/direction_label.ts";
 import "./providers/mta.ts";
 import "./providers/mta-bus.ts";
 
@@ -68,6 +69,7 @@ type DeviceLinePayload = {
     stop?: string;
     stopId?: string;
     direction?: string;
+    directionLabel?: string;
     fetchedAt?: string;
     nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number }>;
 };
@@ -87,18 +89,22 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
               ? params.stop
               : undefined;
     const stopName = stopId ? resolveStopName(stopId) : undefined;
+    const directionFromPayload = typeof body.direction === "string" ? body.direction : undefined;
+    const directionFromKey = typeof params.direction === "string" && params.direction.length > 0 ? params.direction : undefined;
+    const direction = directionFromPayload ?? directionFromKey;
+    const directionLabel = resolveDirectionLabel({
+        line: line || undefined,
+        direction,
+        stop: stopName ?? stopId,
+    });
 
     return {
         provider: typeof body.provider === "string" ? body.provider : undefined,
         line: line || undefined,
         stop: stopName ?? stopId,
         stopId,
-        direction:
-            typeof body.direction === "string"
-                ? body.direction
-                : typeof params.direction === "string" && params.direction.length > 0
-                  ? params.direction
-                  : undefined,
+        direction,
+        directionLabel: directionLabel || undefined,
         fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
         nextArrivals: extractNextArrivals(payload),
     };
@@ -124,6 +130,7 @@ const buildDeviceCommandPayload = (keys: Set<string>) => {
         stop: primary?.stop,
         stopId: primary?.stopId,
         direction: primary?.direction,
+        directionLabel: primary?.directionLabel,
         fetchedAt: new Date().toISOString(),
         nextArrivals: primary?.nextArrivals ?? [],
         lines,
