@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
 import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
-import { listCtaSubwayLines, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
+import { listCtaSubwayLines, listCtaSubwayLinesForStop, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
@@ -148,6 +148,23 @@ export function registerStops(app: Hono, _deps: dependency) {
             stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
         }
         return c.json({ count: stops.length, stops: stops.slice(0, limit) });
+    });
+
+    app.get("/providers/chicago/stops/:stopId/lines", async (c) => {
+        const stopId = (c.req.param("stopId") ?? "").trim();
+        if (!stopId) return c.json({ error: "stopId is required" }, 400);
+
+        const station = listCtaSubwayStops().find((s) => s.stopId === stopId);
+        const lines = await listCtaSubwayLinesForStop(stopId);
+        if (!station && lines.length === 0) {
+            return c.json({ error: "Stop not found" }, 404);
+        }
+
+        return c.json({
+            stopId: station?.stopId ?? stopId,
+            stop: station?.stop ?? stopId,
+            lines,
+        });
     });
 
     app.get("/providers/chicago/routes/subway", (c) => {

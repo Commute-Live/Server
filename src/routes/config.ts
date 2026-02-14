@@ -4,6 +4,7 @@ import type { dependency } from "../types/dependency.d.ts";
 import { devices } from "../db/schema/schema.ts";
 import type { DeviceConfig, LineConfig } from "../types.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
+import { listCtaSubwayLinesForStop } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
@@ -141,6 +142,18 @@ export function registerConfig(app: Hono, deps: dependency) {
                         return c.json(
                             {
                                 error: `Invalid line+stop combination for NYC bus: line ${line} does not serve stop ${stop}`,
+                            },
+                            400
+                        );
+                    }
+                }
+                if (provider === "cta-subway" && line && stop) {
+                    const ctaStopLines = await listCtaSubwayLinesForStop(stop);
+                    const normalizedStopLines = ctaStopLines.map((v) => v.trim().toUpperCase());
+                    if (!normalizedStopLines.includes(line)) {
+                        return c.json(
+                            {
+                                error: `Invalid line+stop combination for Chicago subway: line ${line} does not serve stop ${stop}`,
                             },
                             400
                         );
