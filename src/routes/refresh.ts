@@ -1,14 +1,22 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
+import { authRequired } from "../middleware/auth.ts";
+import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 
 export function registerRefresh(app: Hono, deps: dependency) {
-    app.post("/refresh/device/:deviceId", async (c) => {
-        const deviceId = c.req.param("deviceId");
-        await deps.aggregator.refreshDevice(deviceId);
-        return c.json({ status: "ok", deviceId });
-    });
+    app.post(
+        "/refresh/device/:deviceId",
+        authRequired,
+        requireDeviceAccess(deps, "deviceId"),
+        async (c) => {
+            const deviceId = c.req.param("deviceId");
 
-    app.post("/refresh/key", async (c) => {
+            await deps.aggregator.refreshDevice(deviceId);
+            return c.json({ status: "ok", deviceId });
+        },
+    );
+
+    app.post("/refresh/key", authRequired, async (c) => {
         const body = await c.req.json().catch(() => null);
         const key = body?.key;
         if (!key || typeof key !== "string") {
