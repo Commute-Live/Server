@@ -6,6 +6,7 @@ let stopNameById: Map<string, string> | null = null;
 let cachedStopOptions: Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }> | null = null;
 let routeLabelByRouteId: Map<string, string> | null = null;
 const linesByStopCache = new Map<string, string[]>();
+const stopsByLineCache = new Map<string, Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }>>();
 
 function parseCsvLine(line: string): string[] {
     const values: string[] = [];
@@ -272,4 +273,114 @@ export async function listLinesForStop(stopId: string): Promise<string[]> {
     const lines = await collectLinesForTripIds(tripIds);
     linesByStopCache.set(normalizedStopId, lines);
     return lines;
+}
+
+export async function listStopsForLine(line: string): Promise<Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }>> {
+    const normalizedLine = line.trim().toUpperCase();
+    if (!normalizedLine) return [];
+
+    const cached = stopsByLineCache.get(normalizedLine);
+    if (cached) return cached;
+
+    const routeLabels = loadRouteLabels();
+    const matchingRouteIds = new Set<string>();
+    for (const [routeId, label] of routeLabels.entries()) {
+        if ((label ?? "").trim().toUpperCase() === normalizedLine) {
+            matchingRouteIds.add(routeId);
+        }
+    }
+    if (!matchingRouteIds.size) {
+        matchingRouteIds.add(normalizedLine);
+    }
+
+    const tripsPath = findGtfsFilePath("trips.txt");
+    const tripIds = new Set<string>();
+    if (tripsPath) {
+        const rl = createInterface({
+            input: createReadStream(tripsPath),
+            crlfDelay: Infinity,
+        });
+
+        let isHeader = true;
+        let routeIdIdx = -1;
+        let tripIdIdx = -1;
+
+        for await (const rawLine of rl) {
+            const lineText = rawLine.trim();
+            if (!lineText) continue;
+
+            if (isHeader) {
+                isHeader = false;
+                const header = parseCsvLine(lineText);
+                routeIdIdx = header.indexOf("route_id");
+                tripIdIdx = header.indexOf("trip_id");
+                continue;
+            }
+
+            if (routeIdIdx < 0 || tripIdIdx < 0) break;
+            const cols = parseCsvLine(lineText);
+            const routeId = cols[routeIdIdx]?.trim();
+            const tripId = cols[tripIdIdx]?.trim();
+            if (!routeId || !tripId) continue;
+            if (matchingRouteIds.has(routeId)) tripIds.add(tripId);
+        }
+    }
+
+    if (!tripIds.size) {
+        stopsByLineCache.set(normalizedLine, []);
+        return [];
+    }
+
+    const stopTimesPath = findGtfsFilePath("stop_times.txt");
+    const stopIds = new Set<string>();
+    if (stopTimesPath) {
+        const rl = createInterface({
+            input: createReadStream(stopTimesPath),
+            crlfDelay: Infinity,
+        });
+
+        let isHeader = true;
+        let tripIdIdx = -1;
+        let stopIdIdx = -1;
+
+        for await (const rawLine of rl) {
+            const lineText = rawLine.trim();
+            if (!lineText) continue;
+
+            if (isHeader) {
+                isHeader = false;
+                const header = parseCsvLine(lineText);
+                tripIdIdx = header.indexOf("trip_id");
+                stopIdIdx = header.indexOf("stop_id");
+                continue;
+            }
+
+            if (tripIdIdx < 0 || stopIdIdx < 0) break;
+            const cols = parseCsvLine(lineText);
+            const tripId = cols[tripIdIdx]?.trim();
+            if (!tripId || !tripIds.has(tripId)) continue;
+            const stopId = cols[stopIdIdx]?.trim();
+            if (stopId) stopIds.add(stopId);
+        }
+    }
+
+    const stopMap = loadStopMap();
+    const results: Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }> = [];
+    for (const stopId of stopIds) {
+        const stop = stopMap.get(stopId);
+        if (!stop) continue;
+        let direction: "N" | "S" | "" = "";
+        if (stopId.endsWith("N")) direction = "N";
+        else if (stopId.endsWith("S")) direction = "S";
+        results.push({ stopId, stop, direction });
+    }
+
+    results.sort((a, b) => {
+        const byStop = a.stop.localeCompare(b.stop);
+        if (byStop !== 0) return byStop;
+        return a.stopId.localeCompare(b.stopId);
+    });
+
+    stopsByLineCache.set(normalizedLine, results);
+    return results;
 }

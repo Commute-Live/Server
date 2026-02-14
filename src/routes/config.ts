@@ -3,6 +3,8 @@ import { eq } from "drizzle-orm";
 import type { dependency } from "../types/dependency.d.ts";
 import { devices } from "../db/schema/schema.ts";
 import type { DeviceConfig, LineConfig } from "../types.ts";
+import { listLinesForStop } from "../gtfs/stops_lookup.ts";
+import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
 const DEFAULT_DISPLAY_TYPE = 1;
@@ -111,6 +113,38 @@ export function registerConfig(app: Hono, deps: dependency) {
                     );
                 } else {
                     updates.lines = proposed as LineConfig[];
+                }
+            }
+        }
+
+        if (Array.isArray(updates.lines) && updates.lines.length > 0) {
+            for (const row of updates.lines) {
+                const provider = (row.provider ?? "").trim().toLowerCase();
+                const line = (row.line ?? "").trim().toUpperCase();
+                const stop = (row.stop ?? "").trim().toUpperCase();
+                if ((provider === "mta-subway" || provider === "mta") && line && stop) {
+                    const stopLines = await listLinesForStop(stop);
+                    const normalizedStopLines = stopLines.map((v) => v.trim().toUpperCase());
+                    if (!normalizedStopLines.includes(line)) {
+                        return c.json(
+                            {
+                                error: `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`,
+                            },
+                            400
+                        );
+                    }
+                }
+                if (provider === "mta-bus" && line && stop) {
+                    const busStops = await listMtaBusStopsForRoute(line);
+                    const hasStop = busStops.some((s) => s.stopId.trim().toUpperCase() === stop);
+                    if (!hasStop) {
+                        return c.json(
+                            {
+                                error: `Invalid line+stop combination for NYC bus: line ${line} does not serve stop ${stop}`,
+                            },
+                            400
+                        );
+                    }
                 }
             }
         }
