@@ -1,1 +1,1 @@
-// Chicago providers register from this module when added.
+import "./cta-subway.ts";

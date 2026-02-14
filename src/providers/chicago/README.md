@@ -1,3 +1,3 @@
-Chicago provider modules placeholder.
+Chicago provider modules.
 
-Add CTA adapters here (for example train/bus providers) and register them from `src/engine.ts`.
+- `cta-subway.ts`: CTA Train Tracker arrivals provider (`provider: "cta-subway"`).
