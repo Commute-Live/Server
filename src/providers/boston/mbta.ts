@@ -53,6 +53,17 @@ type MbtaResponse = {
 
 const MBTA_BASE_URL = "https://api-v3.mbta.com";
 const CACHE_TTL_SECONDS = 20;
+const ROUTE_CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000;
+
+const routeCache = new Map<
+    string,
+    {
+        expiresAt: number;
+        predictions: MbtaPrediction[];
+        included: MbtaIncluded[];
+    }
+>();
+const inflightRouteFetch = new Map<string, Promise<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }>>();
 
 type ArrivalItem = {
     arrivalTime: string;
@@ -121,6 +132,7 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
     if (!stop) throw new Error("MBTA stop is required (use stop=<stopId>)");
 
     const line = params.line?.trim();
+    if (!line) throw new Error("MBTA line/route is required (use line=<routeId>)");
     const directionRaw = params.direction?.trim();
     const directionId = /^\d$/.test(directionRaw ?? "") ? Number(directionRaw) : undefined;
 
@@ -129,36 +141,72 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
         throw new Error("MBTA API key is required (set MBTA_API_KEY)");
     }
 
-    const search = new URLSearchParams({
-        "filter[stop]": stop,
-        "page[limit]": "10",
-        include: "stop,route,trip",
-        sort: "arrival_time",
-    });
-    if (line) search.set("filter[route]", line);
-    if (directionId === 0 || directionId === 1) search.set("filter[direction_id]", directionId.toString());
+    const fetchJson = async (url: string): Promise<MbtaResponse> => {
+        const res = await fetch(url, {
+            headers: {
+                "x-api-key": apiKey,
+            },
+        });
 
-    const url = `${MBTA_BASE_URL}/predictions?${search.toString()}`;
-    const res = await fetch(url, {
-        headers: {
-            "x-api-key": apiKey,
-        },
-    });
+        if (!res.ok) {
+            throw new Error(`MBTA error ${res.status} ${res.statusText}`);
+        }
 
-    if (!res.ok) {
-        throw new Error(`MBTA error ${res.status} ${res.statusText}`);
-    }
+        const json = (await res.json()) as MbtaResponse;
+        if (json.errors?.length) {
+            const first = json.errors[0]?.detail ?? "Unknown MBTA error";
+            throw new Error(first);
+        }
+        return json;
+    };
 
-    const json = (await res.json()) as MbtaResponse;
-    if (json.errors?.length) {
-        const first = json.errors[0]?.detail ?? "Unknown MBTA error";
-        throw new Error(first);
-    }
+    const buildUrl = (opts: { line: string; directionId?: number | null }) => {
+        const search = new URLSearchParams({
+            "page[limit]": "10",
+            include: "stop,route,trip",
+            sort: "arrival_time",
+        });
+        search.set("filter[route]", opts.line);
+        if (opts.directionId === 0 || opts.directionId === 1) search.set("filter[direction_id]", opts.directionId.toString());
+        return `${MBTA_BASE_URL}/predictions?${search.toString()}`;
+    };
 
-    const predictions = (json.data ?? []).filter((p): p is MbtaPrediction => !!p && p.type === "prediction");
-    const included = json.included ?? [];
+    const fetchPredictions = async (url: string) => {
+        const json = await fetchJson(url);
+        return {
+            predictions: (json.data ?? []).filter((p): p is MbtaPrediction => !!p && p.type === "prediction"),
+            included: json.included ?? [],
+        };
+    };
+
+    const routeCacheKey = `${line}|${directionId ?? "any"}`;
+    const now = ctx.now;
+
+    const getRouteBundle = async (): Promise<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }> => {
+        const cached = routeCache.get(routeCacheKey);
+        if (cached && cached.expiresAt > now) return cached;
+
+        const existing = inflightRouteFetch.get(routeCacheKey);
+        if (existing) return existing;
+
+        const work = fetchPredictions(buildUrl({ line, directionId })).then((bundle) => {
+            routeCache.set(routeCacheKey, { ...bundle, expiresAt: now + ROUTE_CACHE_TTL_MS });
+            inflightRouteFetch.delete(routeCacheKey);
+            return bundle;
+        });
+        inflightRouteFetch.set(routeCacheKey, work);
+        return work;
+    };
+
+    const bundle = await getRouteBundle();
+    let { predictions, included } = bundle;
 
     let arrivals: ArrivalItem[] = predictions
+        .filter((p) => {
+            if (!stop) return true;
+            const stopId = p.relationships.stop?.data?.id;
+            return stopId === stop;
+        })
         .map((p): ArrivalItem | null => {
             const arrivalIso = normalizeArrivalTime(p);
             if (!arrivalIso) return null;
@@ -179,18 +227,24 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
     arrivals = pickUpcomingArrivals(arrivals, ctx.now);
 
     const firstPrediction = arrivals[0];
+    const resolvedStopId = predictions[0]?.relationships.stop?.data?.id ?? stop;
+
     const stopIncluded =
         pickIncluded(included, "stop", predictions[0]?.relationships.stop?.data?.id ?? undefined) ??
-        pickIncluded(included, "stop", stop);
+        pickIncluded(included, "stop", stop) ??
+        (resolvedStopId ? pickIncluded(included, "stop", resolvedStopId) : undefined);
+
     const routeIncluded =
         pickIncluded(included, "route", predictions[0]?.relationships.route?.data?.id ?? undefined) ??
-        pickIncluded(included, "route", line);
+        pickIncluded(included, "route", line) ??
+        (firstPrediction?.route?.id ? pickIncluded(included, "route", firstPrediction.route.id) : undefined);
+
     const tripIncluded = firstPrediction?.trip;
 
     const resolvedLine =
+        routeIncluded?.id?.trim() ||
         routeIncluded?.attributes?.short_name?.trim() ||
         routeIncluded?.attributes?.long_name?.trim() ||
-        routeIncluded?.id ||
         line;
 
     const resolvedDirectionId = firstPrediction?.directionId ?? directionId;
@@ -204,9 +258,9 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
         payload: {
             provider: "mbta",
             line: resolvedLine,
-            stop: stopIncluded?.attributes?.name || stop,
-            stopId: stop,
-            stopName: stopIncluded?.attributes?.name,
+            stop: stopIncluded?.attributes?.name || resolvedStopId || stop,
+            stopId: resolvedStopId || stop,
+            stopName: stopIncluded?.attributes?.name ?? stopIncluded?.id,
             direction: normalizeDirection(resolvedDirectionId, directionRaw),
             directionLabel: directionLabel ?? undefined,
             arrivals: arrivals.map((item) => ({
