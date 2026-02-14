@@ -162,11 +162,23 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
 
     const buildUrl = (opts: { line: string; directionId?: number | null }) => {
         const search = new URLSearchParams({
-            "page[limit]": "10",
+            "page[limit]": "200",
             include: "stop,route,trip",
             sort: "arrival_time",
         });
         search.set("filter[route]", opts.line);
+        if (opts.directionId === 0 || opts.directionId === 1) search.set("filter[direction_id]", opts.directionId.toString());
+        return `${MBTA_BASE_URL}/predictions?${search.toString()}`;
+    };
+
+    const buildUrlWithStop = (opts: { line: string; stop: string; directionId?: number | null }) => {
+        const search = new URLSearchParams({
+            "page[limit]": "50",
+            include: "stop,route,trip",
+            sort: "arrival_time",
+        });
+        search.set("filter[route]", opts.line);
+        search.set("filter[stop]", opts.stop);
         if (opts.directionId === 0 || opts.directionId === 1) search.set("filter[direction_id]", opts.directionId.toString());
         return `${MBTA_BASE_URL}/predictions?${search.toString()}`;
     };
@@ -184,7 +196,9 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
 
     const getRouteBundle = async (): Promise<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }> => {
         const cached = routeCache.get(routeCacheKey);
-        if (cached && cached.expiresAt > now) return cached;
+        if (cached && cached.expiresAt > now) {
+            return cached;
+        }
 
         const existing = inflightRouteFetch.get(routeCacheKey);
         if (existing) return existing;
@@ -253,6 +267,48 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
         route: routeIncluded,
         trip: tripIncluded,
     });
+
+    // If still empty for this stop, fall back to a stop-specific fetch once.
+    if (!arrivals.length) {
+        const stopBundle = await fetchPredictions(buildUrlWithStop({ line, stop, directionId }));
+        const { predictions: stopPreds, included: stopIncluded } = stopBundle;
+        const stopArrivals: ArrivalItem[] = stopPreds
+            .map((p): ArrivalItem | null => {
+                const arrivalIso = normalizeArrivalTime(p);
+                if (!arrivalIso) return null;
+                const trip = p.relationships.trip?.data?.id
+                    ? pickIncluded(stopIncluded, "trip", p.relationships.trip.data.id)
+                    : undefined;
+                const route = p.relationships.route?.data?.id
+                    ? pickIncluded(stopIncluded, "route", p.relationships.route.data.id)
+                    : undefined;
+                return {
+                    arrivalTime: arrivalIso,
+                    scheduledTime: null,
+                    delaySeconds: null,
+                    directionId: p.attributes.direction_id,
+                    route,
+                    trip,
+                };
+            })
+            .filter((item): item is ArrivalItem => !!item)
+            .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
+
+        const filteredStopArrivals = pickUpcomingArrivals(stopArrivals, ctx.now);
+        if (filteredStopArrivals.length) {
+            arrivals = filteredStopArrivals;
+            // refresh metadata from this bundle
+            const first = arrivals[0];
+            const stopInc =
+                pickIncluded(stopIncluded, "stop", stopPreds[0]?.relationships.stop?.data?.id ?? undefined) ??
+                pickIncluded(stopIncluded, "stop", stop);
+            const routeInc =
+                pickIncluded(stopIncluded, "route", stopPreds[0]?.relationships.route?.data?.id ?? undefined) ??
+                pickIncluded(stopIncluded, "route", line);
+            stopIncluded && (included = stopIncluded);
+            firstPrediction && (firstPrediction.route = routeInc);
+        }
+    }
 
     return {
         payload: {
