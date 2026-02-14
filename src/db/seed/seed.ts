@@ -11,7 +11,7 @@ async function seed() {
     await db.insert(devices).values({
         id: deviceId,
         timezone: "America/New_York",
-        config: { brightness: 60, lines: [{ provider: "mta", line: "A", stop: "A01", direction: "N" }] },
+        config: { brightness: 60, lines: [{ provider: "mta-subway", line: "A", stop: "A01", direction: "N" }] },
     });
 
     const passwordHash = createHash("sha256").update("demo-password").digest("hex");

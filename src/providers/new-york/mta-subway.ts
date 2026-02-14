@@ -190,7 +190,7 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
 
     return {
         payload: {
-            provider: "mta",
+            provider: "mta-subway",
             line,
             stop: params.stop,
             direction: params.direction,
@@ -204,9 +204,9 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
 };
 
 export const mtaProvider: ProviderPlugin = {
-    providerId: "mta",
+    providerId: "mta-subway",
     supports: (type: string) => type === "arrivals",
-    toKey: ({ type, config }) => buildKey("mta", type, config),
+    toKey: ({ type, config }) => buildKey("mta-subway", type, config),
     parseKey: (key: string) => parseKeySegments(key),
     fetch: (key: string, ctx: FetchContext) => fetchArrivals(key, ctx),
 };
