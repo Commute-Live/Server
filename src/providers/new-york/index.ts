@@ -1,2 +1,2 @@
-import "./mta.ts";
+import "./mta-subway.ts";
 import "./mta-bus.ts";
