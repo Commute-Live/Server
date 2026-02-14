@@ -3,68 +3,18 @@ import type { dependency } from "../types/dependency.d.ts";
 import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
 import { listCtaSubwayLines, listCtaSubwayLinesForStop, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
+import {
+    listSeptaBusRoutes,
+    listSeptaBusStopsForRoute,
+    listSeptaRailRoutes,
+    listSeptaRailStopsForRoute,
+} from "../providers/philadelphia/stops_lookup.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
     const parseLimit = (value: unknown, def = 30, max = 1000) => {
         const raw = Number(value ?? def);
         return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
     };
-
-    const loadCsvLines = (path: string) => {
-        return require("node:fs").readFileSync(path, "utf8").split(/\r?\n/).filter((l: string) => l.length > 0);
-    };
-
-    const buildSeptaLoader = (mode: "bus" | "rail") => {
-        const base = mode === "bus" ? "data/septa/bus" : "data/septa/rail";
-        let stopMap: Map<string, string> | null = null;
-        let routeToStops: Map<string, Set<string>> | null = null;
-
-        const ensureStops = () => {
-            if (stopMap) return stopMap;
-            const rows = loadCsvLines(`${base}/stops.txt`);
-            const header = rows.shift()?.split(",") ?? [];
-            const idIdx = header.indexOf("stop_id");
-            const nameIdx = header.indexOf("stop_name");
-            stopMap = new Map();
-            for (const line of rows) {
-                const cols = line.split(",");
-                const id = cols[idIdx]?.trim();
-                const name = cols[nameIdx]?.trim();
-                if (id) stopMap.set(id, name ?? id);
-            }
-            return stopMap;
-        };
-
-        const ensureRouteStops = () => {
-            if (routeToStops) return routeToStops;
-            routeToStops = new Map();
-            const rows = loadCsvLines(`${base}/route_stops.txt`);
-            const header = rows.shift()?.split(",") ?? [];
-            const rIdx = header.indexOf("route_id");
-            const sIdx = header.indexOf("stop_id");
-            for (const line of rows) {
-                const cols = line.split(",");
-                const r = cols[rIdx]?.trim();
-                const s = cols[sIdx]?.trim();
-                if (!r || !s) continue;
-                if (!routeToStops.has(r)) routeToStops.set(r, new Set());
-                routeToStops.get(r)!.add(s);
-            }
-            return routeToStops;
-        };
-
-        return {
-            stopsForRoute: (route: string, limit: number) => {
-                const routeStops = Array.from(ensureRouteStops().get(route) ?? []).slice(0, limit);
-                const map = ensureStops();
-                const stops = routeStops.map((id) => ({ id, name: map.get(id) ?? id }));
-                return { count: stops.length, stops };
-            },
-        };
-    };
-
-    const septaBusStops = buildSeptaLoader("bus");
-    const septaRailStops = buildSeptaLoader("rail");
 
     app.get("/stops", (c) => {
         const q = (c.req.query("q") ?? "").trim().toLowerCase();
@@ -237,8 +187,17 @@ export function registerStops(app: Hono, _deps: dependency) {
         const route = (c.req.query("route") ?? "").trim();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
         if (!route) return c.json({ error: "route is required (e.g., AIR, FOX, WTR)" }, 400);
-        const result = septaRailStops.stopsForRoute(route, limit);
-        return c.json(result);
+        const stops = listSeptaRailStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: stops.length, stops });
+    });
+
+    // SEPTA train stops alias (same as rail)
+    app.get("/providers/philly/stops/train", (c) => {
+        const route = (c.req.query("route") ?? "").trim();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        if (!route) return c.json({ error: "route is required (e.g., AIR, FOX, WTR)" }, 400);
+        const stops = listSeptaRailStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: stops.length, stops });
     });
 
     // SEPTA bus/trolley stops (GTFS static)
@@ -246,7 +205,31 @@ export function registerStops(app: Hono, _deps: dependency) {
         const route = (c.req.query("route") ?? "").trim();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
         if (!route) return c.json({ error: "route is required (e.g., 33, 47M)" }, 400);
-        const result = septaBusStops.stopsForRoute(route, limit);
-        return c.json(result);
+        const stops = listSeptaBusStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: stops.length, stops });
+    });
+
+    // SEPTA rail routes (GTFS static)
+    app.get("/providers/philly/routes/rail", (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        const routes = listSeptaRailRoutes(q, limit);
+        return c.json({ count: routes.length, routes });
+    });
+
+    // SEPTA train routes alias (same as rail)
+    app.get("/providers/philly/routes/train", (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        const routes = listSeptaRailRoutes(q, limit);
+        return c.json({ count: routes.length, routes });
+    });
+
+    // SEPTA bus/trolley routes (GTFS static)
+    app.get("/providers/philly/routes/bus", (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        const routes = listSeptaBusRoutes(q, limit);
+        return c.json({ count: routes.length, routes });
     });
 }
