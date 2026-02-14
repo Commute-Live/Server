@@ -63,6 +63,64 @@ const normalizeDirection = (raw?: string) => {
     return undefined;
 };
 
+const STOP_CACHE_TTL_MS = 20_000;
+const stopCache = new Map<string, { expiresAt: number; etas: CtaEta[] }>();
+const inflightStopFetch = new Map<string, Promise<{ etas: CtaEta[] }>>();
+
+const getStopBundle = async (opts: { stop: string; apiKey: string }) => {
+    const { stop, apiKey } = opts;
+    const now = Date.now();
+
+    const cached = stopCache.get(stop);
+    if (cached && cached.expiresAt > now) return cached;
+
+    const existing = inflightStopFetch.get(stop);
+    if (existing) return existing;
+
+    const work = (async () => {
+        const search = new URLSearchParams({
+            key: apiKey,
+            outputType: "JSON",
+            max: "20",
+        });
+
+        // CTA uses mapid (4xxxx station parent) or stpid (3xxxx platform stop).
+        if (/^\d{5}$/.test(stop) && stop.startsWith("3")) {
+            search.set("stpid", stop);
+        } else {
+            search.set("mapid", stop);
+        }
+
+        const url = `${CTA_BASE_URL}?${search.toString()}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+            throw new Error(`CTA Train Tracker error ${res.status} ${res.statusText}`);
+        }
+
+        const json = (await res.json()) as CtaResponse;
+        const body = json?.ctatt;
+        const errCd = Number(body?.errCd ?? 900);
+        const errNm = body?.errNm ?? "Unknown CTA error";
+        if (!Number.isFinite(errCd) || errCd !== 0) {
+            throw new Error(`CTA error ${errCd}: ${errNm}`);
+        }
+
+        const bundle = {
+            etas: normalizeEtas(body?.eta),
+            expiresAt: now + STOP_CACHE_TTL_MS,
+        };
+        stopCache.set(stop, bundle);
+        inflightStopFetch.delete(stop);
+        return bundle;
+    })().catch((err) => {
+        inflightStopFetch.delete(stop);
+        throw err;
+    });
+
+    inflightStopFetch.set(stop, work);
+    return work;
+};
+
 const detectOffsetMinutesForChicago = (utcLikeMs: number) => {
     const probe = new Date(utcLikeMs);
     const utcWall = new Date(probe.toLocaleString("en-US", { timeZone: "UTC" }));
@@ -128,37 +186,15 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
     const line = normalizeRoute(params.line);
     const direction = normalizeDirection(params.direction);
 
-    const search = new URLSearchParams({
-        key: apiKey,
-        outputType: "JSON",
+    const bundle = await getStopBundle({ stop, apiKey });
+
+    const filteredEtas = bundle.etas.filter((eta) => {
+        const routeOk = line ? normalizeRoute(eta.rt) === line : true;
+        const dirOk = direction ? eta.trDr === direction : true;
+        return routeOk && dirOk;
     });
 
-    // CTA uses mapid (4xxxx station parent) or stpid (3xxxx platform stop).
-    if (/^\d{5}$/.test(stop) && stop.startsWith("3")) {
-        search.set("stpid", stop);
-    } else {
-        search.set("mapid", stop);
-    }
-
-    if (line) search.set("rt", line);
-    search.set("max", "10");
-
-    const url = `${CTA_BASE_URL}?${search.toString()}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`CTA Train Tracker error ${res.status} ${res.statusText}`);
-    }
-
-    const json = (await res.json()) as CtaResponse;
-    const body = json?.ctatt;
-    const errCd = Number(body?.errCd ?? 900);
-    const errNm = body?.errNm ?? "Unknown CTA error";
-    if (!Number.isFinite(errCd) || errCd !== 0) {
-        throw new Error(`CTA error ${errCd}: ${errNm}`);
-    }
-
-    const etaItems = normalizeEtas(body?.eta)
-        .filter((eta) => (direction ? eta.trDr === direction : true))
+    const etaItems = filteredEtas
         .map((eta) => {
             const arrivalIso = parseCtaTimestamp(eta.arrT);
             const predictionIso = parseCtaTimestamp(eta.prdt);
@@ -179,7 +215,7 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
         .filter((item): item is { arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null } => !!item)
         .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
 
-    const primary = normalizeEtas(body?.eta)[0];
+    const primary = filteredEtas[0] ?? bundle.etas[0];
     const resolvedStopName = primary?.staNm ?? CTA_STATION_NAME_BY_ID[stop] ?? stop;
     const resolvedDirectionLabel = primary?.destNm ?? resolvedStopName;
     const resolvedDirection = params.direction || primary?.trDr || undefined;
