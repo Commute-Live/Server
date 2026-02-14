@@ -1,1 +1,1 @@
-// Boston providers register from this module when added.
+import "./mbta.ts";

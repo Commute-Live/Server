@@ -1,3 +1,3 @@
-Boston provider modules placeholder.
+Boston provider modules.
 
-Add MBTA adapters here (for example subway/bus providers) and register them from `src/engine.ts`.
+- `mbta.ts`: MBTA predictions (bus, subway, commuter rail) provider (`provider: "mbta"`). Requires `MBTA_API_KEY` in `.env`.
