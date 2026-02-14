@@ -1,12 +1,17 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
-import { listLinesForStop, listStops, resolveStopName } from "../gtfs/stops_lookup.ts";
+import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
+import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
+    const parseLimit = (value: unknown, def = 30, max = 1000) => {
+        const raw = Number(value ?? def);
+        return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
+    };
+
     app.get("/stops", (c) => {
         const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limitRaw = Number(c.req.query("limit") ?? "300");
-        const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(1000, Math.floor(limitRaw))) : 300;
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
 
         let stops = listStops();
         if (q.length > 0) {
@@ -31,10 +36,37 @@ export function registerStops(app: Hono, _deps: dependency) {
         return c.json({ stopId, stop, lines });
     });
 
-    const parseLimit = (value: unknown, def = 30, max = 200) => {
-        const raw = Number(value ?? def);
-        return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
-    };
+    // NYC subway stops scoped to route (line), for line-first station selection UX.
+    app.get("/providers/new-york/stops/subway", async (c) => {
+        const route = (c.req.query("route") ?? "").trim().toUpperCase();
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        if (!route) return c.json({ error: "route is required (e.g., A, 7, Q)" }, 400);
+
+        let stops = await listStopsForLine(route);
+        if (q.length > 0) {
+            stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
+        }
+        return c.json({ route, count: stops.length, stops: stops.slice(0, limit) });
+    });
+
+    app.get("/providers/new-york/stops/bus", async (c) => {
+        const route = (c.req.query("route") ?? "").trim().toUpperCase();
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        if (!route) return c.json({ error: "route is required (e.g., M15, Bx12, Q44)" }, 400);
+
+        try {
+            let stops = await listMtaBusStopsForRoute(route);
+            if (q.length > 0) {
+                stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
+            }
+            return c.json({ route, count: stops.length, stops: stops.slice(0, limit) });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to fetch NYC bus stops";
+            return c.json({ error: message }, 500);
+        }
+    });
 
     const fetchMbtaStops = async (route: string, limit: number, routeType?: number) => {
         const apiKey = process.env.MBTA_API_KEY;
@@ -74,7 +106,7 @@ export function registerStops(app: Hono, _deps: dependency) {
     // MBTA subway/light rail stops (route required)
     app.get("/providers/boston/stops/subway", async (c) => {
         const route = (c.req.query("route") ?? "").trim();
-        const limit = parseLimit(c.req.query("limit"));
+        const limit = parseLimit(c.req.query("limit"), 30, 200);
         if (!route) return c.json({ error: "route is required (e.g., Red, Orange, Green-B)" }, 400);
         const result = await fetchMbtaStops(route, limit /* route_type omitted to allow B/C/D/E */);
         if ("error" in result) return c.json({ error: result.error }, result.status);
@@ -84,7 +116,7 @@ export function registerStops(app: Hono, _deps: dependency) {
     // MBTA bus stops (route required)
     app.get("/providers/boston/stops/bus", async (c) => {
         const route = (c.req.query("route") ?? "").trim();
-        const limit = parseLimit(c.req.query("limit"));
+        const limit = parseLimit(c.req.query("limit"), 30, 200);
         if (!route) return c.json({ error: "route is required (e.g., 1, 66, SL1)" }, 400);
         const result = await fetchMbtaStops(route, limit, 3 /* bus */);
         if ("error" in result) return c.json({ error: result.error }, result.status);
