@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
 import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
+import { listCtaSubwayLines, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
@@ -81,6 +82,26 @@ export function registerStops(app: Hono, _deps: dependency) {
             const message = err instanceof Error ? err.message : "Failed to fetch NYC bus routes";
             return c.json({ error: message }, 500);
         }
+    });
+
+    app.get("/providers/chicago/stops/subway", (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        let stops = listCtaSubwayStops();
+        if (q.length > 0) {
+            stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
+        }
+        return c.json({ count: stops.length, stops: stops.slice(0, limit) });
+    });
+
+    app.get("/providers/chicago/routes/subway", (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 30, 100);
+        let routes = listCtaSubwayLines().map((id) => ({ id, label: id }));
+        if (q.length > 0) {
+            routes = routes.filter((r) => r.id.toLowerCase().includes(q) || r.label.toLowerCase().includes(q));
+        }
+        return c.json({ count: routes.length, routes: routes.slice(0, limit) });
     });
 
     const fetchMbtaStops = async (route: string, limit: number, routeType?: number) => {
