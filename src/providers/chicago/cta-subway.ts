@@ -63,21 +63,46 @@ const normalizeDirection = (raw?: string) => {
     return undefined;
 };
 
+const detectOffsetMinutesForChicago = (utcLikeMs: number) => {
+    const probe = new Date(utcLikeMs);
+    const utcWall = new Date(probe.toLocaleString("en-US", { timeZone: "UTC" }));
+    const chicagoWall = new Date(probe.toLocaleString("en-US", { timeZone: "America/Chicago" }));
+    return Math.round((utcWall.getTime() - chicagoWall.getTime()) / 60000);
+};
+
+const parseChicagoLocalToIso = (year: number, month: number, day: number, hour: number, minute: number, second: number) => {
+    const asUtcLike = Date.UTC(year, month - 1, day, hour, minute, second);
+    const offsetMinutes = detectOffsetMinutesForChicago(asUtcLike);
+    return new Date(asUtcLike + offsetMinutes * 60_000).toISOString();
+};
+
 const parseCtaTimestamp = (raw?: string | null) => {
     if (!raw) return null;
     const value = raw.trim();
     if (!value) return null;
 
-    // Supports both "yyyyMMdd HH:mm:ss" and ISO-like strings from outputType=JSON.
-    const match = value.match(/^(\d{4})(\d{2})(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
-    if (match) {
-        const [, y, m, d, hh, mm, ss] = match;
-        const parsed = Date.parse(`${y}-${m}-${d}T${hh}:${mm}:${ss}-06:00`);
+    // Already timezone-aware (Z or +hh:mm/-hh:mm)
+    if (/(Z|[+-]\d{2}:?\d{2})$/i.test(value)) {
+        const parsed = Date.parse(value);
         if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
     }
 
-    const parsed = Date.parse(value);
-    if (Number.isFinite(parsed)) return new Date(parsed).toISOString();
+    // CTA JSON often returns "yyyy-MM-ddTHH:mm:ss" without timezone.
+    let match = value.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})$/);
+    if (match) {
+        const [, y, m, d, hh, mm, ss] = match;
+        return parseChicagoLocalToIso(Number(y), Number(m), Number(d), Number(hh), Number(mm), Number(ss));
+    }
+
+    // CTA docs also use "yyyyMMdd HH:mm:ss".
+    match = value.match(/^(\d{4})(\d{2})(\d{2}) (\d{2}):(\d{2}):(\d{2})$/);
+    if (match) {
+        const [, y, m, d, hh, mm, ss] = match;
+        return parseChicagoLocalToIso(Number(y), Number(m), Number(d), Number(hh), Number(mm), Number(ss));
+    }
+
+    const parsedFallback = Date.parse(value);
+    if (Number.isFinite(parsedFallback)) return new Date(parsedFallback).toISOString();
     return null;
 };
 
@@ -157,15 +182,16 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
     const primary = normalizeEtas(body?.eta)[0];
     const resolvedStopName = primary?.staNm ?? CTA_STATION_NAME_BY_ID[stop] ?? stop;
     const resolvedDirectionLabel = primary?.destNm ?? resolvedStopName;
+    const resolvedDirection = params.direction || primary?.trDr || undefined;
 
     return {
         payload: {
             provider: "cta-subway",
             line: line ?? primary?.rt ?? params.line,
             stop: resolvedStopName,
-            stopId: primary?.stpId ?? stop,
+            stopId: stop,
             stopName: resolvedStopName,
-            direction: params.direction,
+            direction: resolvedDirection,
             directionLabel: resolvedDirectionLabel,
             arrivals: etaItems,
             fetchedAt: new Date(ctx.now).toISOString(),
