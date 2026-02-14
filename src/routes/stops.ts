@@ -10,12 +10,15 @@ export function registerStops(app: Hono, _deps: dependency) {
         return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
     };
 
+    const fs = require("node:fs");
+    const phillyDataRoot = fs.existsSync("data/philly") ? "data/philly" : "data/septa";
+
     const loadCsvLines = (path: string) => {
-        return require("node:fs").readFileSync(path, "utf8").split(/\r?\n/).filter((l: string) => l.length > 0);
+        return fs.readFileSync(path, "utf8").split(/\r?\n/).filter((l: string) => l.length > 0);
     };
 
-    const buildSeptaLoader = (mode: "bus" | "rail") => {
-        const base = mode === "bus" ? "data/septa/bus" : "data/septa/rail";
+    const buildPhillyLoader = (mode: "bus" | "rail") => {
+        const base = `${phillyDataRoot}/${mode}`;
         let stopMap: Map<string, string> | null = null;
         let routeToStops: Map<string, Set<string>> | null = null;
 
@@ -63,8 +66,8 @@ export function registerStops(app: Hono, _deps: dependency) {
         };
     };
 
-    const septaBusStops = buildSeptaLoader("bus");
-    const septaRailStops = buildSeptaLoader("rail");
+    const septaBusStops = buildPhillyLoader("bus");
+    const septaRailStops = buildPhillyLoader("rail");
 
     app.get("/stops", (c) => {
         const q = (c.req.query("q") ?? "").trim().toLowerCase();

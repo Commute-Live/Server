@@ -29,3 +29,7 @@ export const providerRegistry = new Map<string, ProviderPlugin>();
 export const registerProvider = (plugin: ProviderPlugin) => {
     providerRegistry.set(plugin.providerId, plugin);
 };
+
+export const registerProviderAlias = (alias: string, plugin: ProviderPlugin) => {
+    providerRegistry.set(alias, plugin);
+};
