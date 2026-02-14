@@ -64,11 +64,14 @@ const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = D
         .filter((a) => !!a.arrivalTime)
         .sort((a, b) => Date.parse(a.arrivalTime!) - Date.parse(b.arrivalTime!));
 
+const normalizeLine = (line?: string | null) => (line ?? "").trim().toUpperCase();
+
 const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
     const station = params.stop || params.station || "";
     if (!station.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
+    const requestedLine = normalizeLine(params.line);
 
     const search = new URLSearchParams({
         station: station,
@@ -84,8 +87,12 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const json = (await res.json()) as SeptaArrivalsResponse;
     const stationKey = Object.keys(json)[0];
     const body = stationKey ? json[stationKey]?.[0] : undefined;
-    const north = body?.Northbound ?? [];
-    const south = body?.Southbound ?? [];
+    const northRaw = body?.Northbound ?? [];
+    const southRaw = body?.Southbound ?? [];
+    const north =
+        requestedLine.length > 0 ? northRaw.filter((a) => normalizeLine(a.line) === requestedLine) : northRaw;
+    const south =
+        requestedLine.length > 0 ? southRaw.filter((a) => normalizeLine(a.line) === requestedLine) : southRaw;
 
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
@@ -94,7 +101,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     return {
         payload: {
             provider: "septa-rail",
-            line: first?.line ?? params.line ?? "SEPTA",
+            line: requestedLine || normalizeLine(first?.line) || "SEPTA",
             stop: stationKey ?? station,
             stopId: station,
             direction: direction ?? first?.direction,
