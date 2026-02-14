@@ -228,3 +228,13 @@ export function listSeptaBusLinesForStop(stopId: string): SeptaRouteOption[] {
 export function listSeptaRailLinesForStop(stopId: string): SeptaRouteOption[] {
     return queryLinesForStop("rail", stopId);
 }
+
+export function resolveSeptaRailStopName(stopOrName: string): string | null {
+    const raw = stopOrName.trim();
+    if (!raw) return null;
+    const cache = getCache("rail");
+    if (cache.stopNameById.has(raw)) {
+        return cache.stopNameById.get(raw) ?? null;
+    }
+    return raw;
+}

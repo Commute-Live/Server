@@ -1,5 +1,6 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { resolveSeptaRailStopName } from "./stops_lookup.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
@@ -69,8 +70,9 @@ const normalizeLine = (line?: string | null) => (line ?? "").trim().toUpperCase(
 
 const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
-    const station = params.stop || params.station || "";
-    if (!station.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
+    const stationRaw = params.stop || params.station || "";
+    if (!stationRaw.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
+    const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
     const requestedLine = normalizeLine(params.line);
 
@@ -98,13 +100,20 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
     const first = (direction === "S" ? south : direction === "N" ? north : [...north, ...south])[0];
+    if (requestedLine.length > 0 && arrivals.length === 0) {
+        const available = [...northRaw, ...southRaw].map((a) => normalizeLine(a.line)).filter((v) => v.length > 0);
+        const sample = Array.from(new Set(available)).slice(0, 12);
+        console.log(
+            `[SEPTA rail] no arrivals after line filter stationRaw="${stationRaw}" stationQuery="${station}" stationKey="${stationKey ?? ""}" requestedLine="${requestedLine}" availableLines=${sample.join(",")}`,
+        );
+    }
 
     return {
         payload: {
             provider: "septa-rail",
             line: requestedLine || normalizeLine(first?.line) || "SEPTA",
             stop: stationKey ?? station,
-            stopId: station,
+            stopId: stationRaw,
             direction: direction ?? first?.direction,
             directionLabel: first?.path ?? first?.destination ?? stationKey ?? station,
             arrivals,
