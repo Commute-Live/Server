@@ -3,8 +3,7 @@ import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
-import "./providers/mta.ts";
-import "./providers/mta-bus.ts";
+import "./providers/register.ts";
 
 type EngineOptions = {
     providers?: Map<string, ProviderPlugin>;

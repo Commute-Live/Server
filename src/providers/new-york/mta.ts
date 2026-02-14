@@ -1,5 +1,5 @@
-import type { ProviderPlugin, FetchContext, FetchResult } from "../types.ts";
-import { buildKey, parseKeySegments, registerProvider } from "./index.ts";
+import type { ProviderPlugin, FetchContext, FetchResult } from "../../types.ts";
+import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
 

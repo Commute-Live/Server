@@ -1,5 +1,5 @@
-import type { FetchContext, FetchResult, ProviderPlugin } from "../types.ts";
-import { buildKey, parseKeySegments, registerProvider } from "./index.ts";
+import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
+import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 
 // MTA BusTime API docs: https://bustime.mta.info/wiki/Developers/Index
 
