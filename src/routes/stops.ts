@@ -4,9 +4,13 @@ import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "
 import { listCtaSubwayLines, listCtaSubwayLinesForStop, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 import {
+    listSeptaBusLinesForStop,
     listSeptaBusRoutes,
+    listSeptaBusStops,
     listSeptaBusStopsForRoute,
+    listSeptaRailLinesForStop,
     listSeptaRailRoutes,
+    listSeptaRailStops,
     listSeptaRailStopsForRoute,
 } from "../providers/philadelphia/stops_lookup.ts";
 
@@ -182,31 +186,59 @@ export function registerStops(app: Hono, _deps: dependency) {
         return c.json({ count: result.stops.length, stops: result.stops });
     });
 
-    // SEPTA rail stops (GTFS static)
+    // SEPTA rail stops (route optional; when omitted returns all stations)
     app.get("/providers/philly/stops/rail", (c) => {
         const route = (c.req.query("route") ?? "").trim();
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        if (!route) return c.json({ error: "route is required (e.g., AIR, FOX, WTR)" }, 400);
-        const stops = listSeptaRailStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: stops.length, stops });
+        const stops =
+            route.length > 0 ? listSeptaRailStopsForRoute(route, limit) : listSeptaRailStops(q, limit);
+        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: mapped.length, stops: mapped });
     });
 
     // SEPTA train stops alias (same as rail)
     app.get("/providers/philly/stops/train", (c) => {
         const route = (c.req.query("route") ?? "").trim();
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        if (!route) return c.json({ error: "route is required (e.g., AIR, FOX, WTR)" }, 400);
-        const stops = listSeptaRailStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: stops.length, stops });
+        const stops =
+            route.length > 0 ? listSeptaRailStopsForRoute(route, limit) : listSeptaRailStops(q, limit);
+        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: mapped.length, stops: mapped });
     });
 
-    // SEPTA bus/trolley stops (GTFS static)
+    // SEPTA bus/trolley stops (route optional; when omitted returns all stops)
     app.get("/providers/philly/stops/bus", (c) => {
         const route = (c.req.query("route") ?? "").trim();
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        if (!route) return c.json({ error: "route is required (e.g., 33, 47M)" }, 400);
-        const stops = listSeptaBusStopsForRoute(route, limit).map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: stops.length, stops });
+        const stops =
+            route.length > 0 ? listSeptaBusStopsForRoute(route, limit) : listSeptaBusStops(q, limit);
+        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
+        return c.json({ count: mapped.length, stops: mapped });
+    });
+
+    // SEPTA lines by selected stop (station-first flow)
+    app.get("/providers/philly/stops/train/:stopId/lines", (c) => {
+        const stopId = (c.req.param("stopId") ?? "").trim();
+        if (!stopId) return c.json({ error: "stopId is required" }, 400);
+        const lines = listSeptaRailLinesForStop(stopId).map((line) => line.id);
+        return c.json({ stopId, lines });
+    });
+
+    app.get("/providers/philly/stops/rail/:stopId/lines", (c) => {
+        const stopId = (c.req.param("stopId") ?? "").trim();
+        if (!stopId) return c.json({ error: "stopId is required" }, 400);
+        const lines = listSeptaRailLinesForStop(stopId).map((line) => line.id);
+        return c.json({ stopId, lines });
+    });
+
+    app.get("/providers/philly/stops/bus/:stopId/lines", (c) => {
+        const stopId = (c.req.param("stopId") ?? "").trim();
+        if (!stopId) return c.json({ error: "stopId is required" }, 400);
+        const lines = listSeptaBusLinesForStop(stopId).map((line) => line.id);
+        return c.json({ stopId, lines });
     });
 
     // SEPTA rail routes (GTFS static)

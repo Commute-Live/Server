@@ -8,7 +8,9 @@ type Mode = "bus" | "rail";
 
 type SeptaCache = {
     routes: SeptaRouteOption[];
+    routeLabelById: Map<string, string>;
     routeToStops: Map<string, string[]>;
+    stopToRoutes: Map<string, string[]>;
     stopNameById: Map<string, string>;
 };
 
@@ -69,7 +71,9 @@ function buildCache(mode: Mode): SeptaCache {
     if (!routeStopsPath || !routesPath || !stopsPath) {
         return {
             routes: [],
+            routeLabelById: new Map(),
             routeToStops: new Map(),
+            stopToRoutes: new Map(),
             stopNameById: new Map(),
         };
     }
@@ -80,7 +84,9 @@ function buildCache(mode: Mode): SeptaCache {
     if (routeStopsRows.length === 0 || routesRows.length === 0 || stopsRows.length === 0) {
         return {
             routes: [],
+            routeLabelById: new Map(),
             routeToStops: new Map(),
+            stopToRoutes: new Map(),
             stopNameById: new Map(),
         };
     }
@@ -111,6 +117,14 @@ function buildCache(mode: Mode): SeptaCache {
         routeToStops.set(routeId, Array.from(set));
     }
 
+    const stopToRouteSet = new Map<string, Set<string>>();
+    for (const [routeId, stopIds] of routeToStops.entries()) {
+        for (const stopId of stopIds) {
+            if (!stopToRouteSet.has(stopId)) stopToRouteSet.set(stopId, new Set());
+            stopToRouteSet.get(stopId)!.add(routeId);
+        }
+    }
+
     const stopNameById = new Map<string, string>();
     for (let i = 1; i < stopsRows.length; i++) {
         const row = stopsRows[i];
@@ -133,8 +147,12 @@ function buildCache(mode: Mode): SeptaCache {
     const routes = Array.from(routeToStops.keys())
         .map((id) => ({ id, label: routeLabelById.get(id) ?? id }))
         .sort((a, b) => a.id.localeCompare(b.id));
+    const stopToRoutes = new Map<string, string[]>();
+    for (const [stopId, routeSet] of stopToRouteSet.entries()) {
+        stopToRoutes.set(stopId, Array.from(routeSet).sort((a, b) => a.localeCompare(b)));
+    }
 
-    return { routes, routeToStops, stopNameById };
+    return { routes, routeLabelById, routeToStops, stopToRoutes, stopNameById };
 }
 
 function getCache(mode: Mode): SeptaCache {
@@ -161,6 +179,24 @@ function queryStopsForRoute(mode: Mode, route: string, limit: number): SeptaStop
     return stopIds.slice(0, limit).map((stopId) => ({ stopId, stop: cache.stopNameById.get(stopId) ?? stopId }));
 }
 
+function queryStops(mode: Mode, q: string, limit: number): SeptaStopOption[] {
+    const needle = q.trim().toLowerCase();
+    let stops = Array.from(getCache(mode).stopNameById.entries()).map(([stopId, stop]) => ({ stopId, stop }));
+    if (needle.length > 0) {
+        stops = stops.filter((s) => s.stop.toLowerCase().includes(needle) || s.stopId.toLowerCase().includes(needle));
+    }
+    stops.sort((a, b) => a.stop.localeCompare(b.stop));
+    return stops.slice(0, limit);
+}
+
+function queryLinesForStop(mode: Mode, stopId: string): SeptaRouteOption[] {
+    const normalizedStopId = stopId.trim();
+    if (!normalizedStopId) return [];
+    const cache = getCache(mode);
+    const routeIds = cache.stopToRoutes.get(normalizedStopId) ?? [];
+    return routeIds.map((id) => ({ id, label: cache.routeLabelById.get(id) ?? id }));
+}
+
 export function listSeptaBusRoutes(q = "", limit = 300): SeptaRouteOption[] {
     return queryRoutes("bus", q, limit);
 }
@@ -177,3 +213,18 @@ export function listSeptaRailStopsForRoute(route: string, limit = 300): SeptaSto
     return queryStopsForRoute("rail", route, limit);
 }
 
+export function listSeptaBusStops(q = "", limit = 300): SeptaStopOption[] {
+    return queryStops("bus", q, limit);
+}
+
+export function listSeptaRailStops(q = "", limit = 300): SeptaStopOption[] {
+    return queryStops("rail", q, limit);
+}
+
+export function listSeptaBusLinesForStop(stopId: string): SeptaRouteOption[] {
+    return queryLinesForStop("bus", stopId);
+}
+
+export function listSeptaRailLinesForStop(stopId: string): SeptaRouteOption[] {
+    return queryLinesForStop("rail", stopId);
+}
