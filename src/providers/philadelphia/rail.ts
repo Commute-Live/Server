@@ -1,5 +1,5 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
-import { buildKey, parseKeySegments, registerProvider, registerProviderAlias } from "../index.ts";
+import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
@@ -93,7 +93,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
 
     return {
         payload: {
-            provider: "philly-rail",
+            provider: "septa-rail",
             line: first?.line ?? params.line ?? "SEPTA",
             stop: stationKey ?? station,
             stopId: station,
@@ -107,12 +107,11 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
 };
 
 export const septaRailProvider: ProviderPlugin = {
-    providerId: "philly-rail",
+    providerId: "septa-rail",
     supports: (type: string) => type === "arrivals",
-    toKey: ({ type, config }) => buildKey("philly-rail", type, config),
+    toKey: ({ type, config }) => buildKey("septa-rail", type, config),
     parseKey: (key: string) => parseKeySegments(key),
     fetch: (key: string, ctx: FetchContext) => fetchSeptaRailArrivals(key, ctx),
 };
 
 registerProvider(septaRailProvider);
-registerProviderAlias("septa-rail", septaRailProvider);

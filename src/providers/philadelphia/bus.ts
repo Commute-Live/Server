@@ -1,8 +1,8 @@
 import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
-import { buildKey, parseKeySegments, registerProvider, registerProviderAlias } from "../index.ts";
-import { existsSync, readFileSync } from "node:fs";
+import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { readFileSync } from "node:fs";
 
 const TRIP_FEED_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
 const FEED_TTL_MS = 15_000;
@@ -11,19 +11,13 @@ const CACHE_TTL_SECONDS = 20;
 const feedCache: { feed: transit_realtime.FeedMessage; expiresAt: number } = { feed: undefined as any, expiresAt: 0 };
 let inflight: Promise<transit_realtime.FeedMessage> | null = null;
 
-const BUS_DATA_DIR = (() => {
-    const primary = "data/philly/bus";
-    const legacy = "data/septa/bus";
-    return existsSync(primary) ? primary : legacy;
-})();
-
 const loadStopNames = (() => {
     let map: Map<string, string> | null = null;
     return () => {
         if (map) return map;
         map = new Map<string, string>();
         try {
-            const csv = readFileSync(`${BUS_DATA_DIR}/stops.txt`, "utf8").split(/\r?\n/);
+            const csv = readFileSync("data/septa/bus/stops.txt", "utf8").split(/\r?\n/);
             const header = csv.shift()?.split(",") ?? [];
             const idIdx = header.indexOf("stop_id");
             const nameIdx = header.indexOf("stop_name");
@@ -132,7 +126,7 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
 
     return {
         payload: {
-            provider: "philly-bus",
+            provider: "septa-bus",
             line: route,
             stop: stopName ?? stop,
             stopId: stop,
@@ -146,12 +140,11 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
 };
 
 export const septaBusProvider: ProviderPlugin = {
-    providerId: "philly-bus",
+    providerId: "septa-bus",
     supports: (type: string) => type === "arrivals",
-    toKey: ({ type, config }) => buildKey("philly-bus", type, config),
+    toKey: ({ type, config }) => buildKey("septa-bus", type, config),
     parseKey: (key: string) => parseKeySegments(key),
     fetch: (key: string, ctx: FetchContext) => fetchSeptaBusArrivals(key, ctx),
 };
 
 registerProvider(septaBusProvider);
-registerProviderAlias("septa-bus", septaBusProvider);
