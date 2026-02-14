@@ -3,6 +3,7 @@ import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
+const ARRIVALS_RESULTS_LIMIT = 30;
 
 type SeptaArrival = {
     direction: "N" | "S";
@@ -75,7 +76,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
 
     const search = new URLSearchParams({
         station: station,
-        results: "5",
+        results: String(ARRIVALS_RESULTS_LIMIT),
     });
     if (direction) search.set("direction", direction);
 
