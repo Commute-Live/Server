@@ -4,4 +4,3 @@ node_modules
 app.env
 .DS_Store
 data/.DS_Store
-data/cta-subway/
