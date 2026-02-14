@@ -215,37 +215,28 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
     const bundle = await getRouteBundle();
     let { predictions, included } = bundle;
 
-    const buildArrivals = (source: MbtaPrediction[]): ArrivalItem[] =>
-        source
-            .map((p): ArrivalItem | null => {
-                const arrivalIso = normalizeArrivalTime(p);
-                if (!arrivalIso) return null;
-                const trip = p.relationships.trip?.data?.id ? pickIncluded(included, "trip", p.relationships.trip.data.id) : undefined;
-                const route = p.relationships.route?.data?.id ? pickIncluded(included, "route", p.relationships.route.data.id) : undefined;
-                return {
-                    arrivalTime: arrivalIso,
-                    scheduledTime: null,
-                    delaySeconds: null,
-                    directionId: p.attributes.direction_id,
-                    route,
-                    trip,
-                };
-            })
-            .filter((item): item is ArrivalItem => !!item)
-            .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
-
-    const filteredByStop = predictions.filter((p) => {
-        if (!stop) return true;
-        const stopId = p.relationships.stop?.data?.id;
-        return stopId === stop;
-    });
-
-    let arrivals: ArrivalItem[] = buildArrivals(filteredByStop);
-
-    // If using a parent station id (place-xxxx) and nothing matched, allow any stops from the route bundle.
-    if (!arrivals.length && stop?.startsWith("place-")) {
-        arrivals = buildArrivals(predictions);
-    }
+    let arrivals: ArrivalItem[] = predictions
+        .filter((p) => {
+            if (!stop) return true;
+            const stopId = p.relationships.stop?.data?.id;
+            return stopId === stop;
+        })
+        .map((p): ArrivalItem | null => {
+            const arrivalIso = normalizeArrivalTime(p);
+            if (!arrivalIso) return null;
+            const trip = p.relationships.trip?.data?.id ? pickIncluded(included, "trip", p.relationships.trip.data.id) : undefined;
+            const route = p.relationships.route?.data?.id ? pickIncluded(included, "route", p.relationships.route.data.id) : undefined;
+            return {
+                arrivalTime: arrivalIso,
+                scheduledTime: null,
+                delaySeconds: null,
+                directionId: p.attributes.direction_id,
+                route,
+                trip,
+            };
+        })
+        .filter((item): item is ArrivalItem => !!item)
+        .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
 
     arrivals = pickUpcomingArrivals(arrivals, ctx.now);
 
