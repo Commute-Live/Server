@@ -87,7 +87,7 @@ type DeviceLinePayload = {
 };
 
 const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
-    const { params } = parseKeySegments(key);
+    const { providerId, params } = parseKeySegments(key);
     const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
 
     const lineFromPayload = typeof body.line === "string" ? body.line : "";
@@ -100,19 +100,27 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             : typeof params.stop === "string" && params.stop.length > 0
               ? params.stop
               : undefined;
+    const stopFromPayload = typeof body.stop === "string" && body.stop.length > 0 ? body.stop : undefined;
     const stopNameFromPayload = typeof body.stopName === "string" && body.stopName.length > 0 ? body.stopName : undefined;
-    const stopName = stopNameFromPayload ?? (stopId ? resolveStopName(stopId) : undefined);
+    const stopName =
+        stopNameFromPayload ??
+        (stopFromPayload && stopFromPayload !== stopId ? stopFromPayload : undefined) ??
+        (stopId ? resolveStopName(stopId) : undefined);
     const directionFromPayload = typeof body.direction === "string" ? body.direction : undefined;
     const directionFromKey = typeof params.direction === "string" && params.direction.length > 0 ? params.direction : undefined;
     const direction = directionFromPayload ?? directionFromKey;
-    const directionLabel = resolveDirectionLabel({
-        line: line || undefined,
-        direction,
-        stop: stopName ?? stopId,
-    });
+    const directionLabelFromPayload =
+        typeof body.directionLabel === "string" && body.directionLabel.length > 0 ? body.directionLabel : undefined;
+    const directionLabel =
+        directionLabelFromPayload ??
+        resolveDirectionLabel({
+            line: line || undefined,
+            direction,
+            stop: stopName ?? stopId,
+        });
 
     return {
-        provider: typeof body.provider === "string" ? body.provider : undefined,
+        provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
         line: line || undefined,
         stop: stopName ?? stopId,
         stopId,

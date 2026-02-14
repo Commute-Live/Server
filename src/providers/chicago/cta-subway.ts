@@ -2,6 +2,13 @@ import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 
 const CTA_BASE_URL = "https://lapi.transitchicago.com/api/1.0/ttarrivals.aspx";
+const CTA_STATION_NAME_BY_ID: Record<string, string> = {
+    "40380": "Clark/Lake",
+    "41400": "Roosevelt",
+    "40900": "Howard",
+    "40890": "O'Hare",
+    "40450": "95th/Dan Ryan",
+};
 
 type CtaEta = {
     staId?: string;
@@ -148,15 +155,18 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
         .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
 
     const primary = normalizeEtas(body?.eta)[0];
+    const resolvedStopName = primary?.staNm ?? CTA_STATION_NAME_BY_ID[stop] ?? stop;
+    const resolvedDirectionLabel = primary?.destNm ?? resolvedStopName;
 
     return {
         payload: {
             provider: "cta-subway",
             line: line ?? primary?.rt ?? params.line,
-            stop,
-            stopId: primary?.stpId ?? undefined,
-            stopName: primary?.staNm ?? undefined,
+            stop: resolvedStopName,
+            stopId: primary?.stpId ?? stop,
+            stopName: resolvedStopName,
             direction: params.direction,
+            directionLabel: resolvedDirectionLabel,
             arrivals: etaItems,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
