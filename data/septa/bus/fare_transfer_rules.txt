@@ -1,0 +1,4 @@
+from_leg_group_id,to_leg_group_id,duration_limit,duration_limit_type,fare_transfer_type,transfer_count
+contactless_single_trip,contactless_single_trip,7200,1,0,2
+key_single_trip,key_single_trip,7200,1,0,2
+tix_single_trip,tix_single_trip,7200,1,0,1

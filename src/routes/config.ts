@@ -5,8 +5,13 @@ import { devices } from "../db/schema/schema.ts";
 import type { DeviceConfig, LineConfig } from "../types.ts";
 import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
+import { listLinesForStop } from "../gtfs/stops_lookup.ts";
+import { listCtaSubwayLinesForStop } from "../gtfs/cta_subway_lookup.ts";
+import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
+const DEFAULT_DISPLAY_TYPE = 1;
+const DEFAULT_SCROLLING = false;
 
 const validateLines = (lines: unknown): lines is LineConfig[] => {
     if (!Array.isArray(lines)) return false;
@@ -20,6 +25,16 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
         if (
             candidate.direction !== undefined &&
             typeof candidate.direction !== "string"
+        )
+            return false;
+        if (
+            candidate.displayType !== undefined &&
+            typeof candidate.displayType !== "number"
+        )
+            return false;
+        if (
+            candidate.scrolling !== undefined &&
+            typeof candidate.scrolling !== "boolean"
         )
             return false;
         return true;
@@ -46,7 +61,30 @@ const normalizeConfig = (
           ? current.lines
           : [];
 
-    return { ...current, ...updates, brightness, lines };
+    const displayType =
+        typeof updates.displayType === "number" &&
+        !Number.isNaN(updates.displayType)
+            ? updates.displayType
+            : typeof current.displayType === "number" &&
+                !Number.isNaN(current.displayType)
+              ? current.displayType
+              : DEFAULT_DISPLAY_TYPE;
+
+    const scrolling =
+        typeof updates.scrolling === "boolean"
+            ? updates.scrolling
+            : typeof current.scrolling === "boolean"
+              ? current.scrolling
+              : DEFAULT_SCROLLING;
+
+    return {
+        ...current,
+        ...updates,
+        brightness,
+        lines,
+        displayType,
+        scrolling,
+    };
 };
 
 export function registerConfig(app: Hono, deps: dependency) {
@@ -93,6 +131,25 @@ export function registerConfig(app: Hono, deps: dependency) {
                     }
                 }
 
+                if ("displayType" in (body as Record<string, unknown>)) {
+                    const maybeDisplay = (body as Record<string, unknown>)
+                        .displayType;
+                    if (
+                        typeof maybeDisplay === "number" &&
+                        !Number.isNaN(maybeDisplay)
+                    ) {
+                        updates.displayType = maybeDisplay;
+                    }
+                }
+
+                if ("scrolling" in (body as Record<string, unknown>)) {
+                    const maybeScrolling = (body as Record<string, unknown>)
+                        .scrolling;
+                    if (typeof maybeScrolling === "boolean") {
+                        updates.scrolling = maybeScrolling;
+                    }
+                }
+
                 if ("lines" in (body as Record<string, unknown>)) {
                     const proposed = (body as Record<string, unknown>).lines;
                     if (proposed === undefined || proposed === null) {
@@ -100,12 +157,70 @@ export function registerConfig(app: Hono, deps: dependency) {
                     } else if (!validateLines(proposed)) {
                         return c.json(
                             {
-                                error: "lines must be an array of { provider, line, stop?, direction? }",
+                                error: "lines must be an array of { provider, line, stop?, direction?, displayType?, scrolling? }",
                             },
                             400,
                         );
                     } else {
                         updates.lines = proposed as LineConfig[];
+                    }
+                }
+            }
+
+            if (Array.isArray(updates.lines) && updates.lines.length > 0) {
+                for (const row of updates.lines) {
+                    const provider = (row.provider ?? "").trim().toLowerCase();
+                    const line = (row.line ?? "").trim().toUpperCase();
+                    const stop = (row.stop ?? "").trim().toUpperCase();
+
+                    if (
+                        (provider === "mta-subway" || provider === "mta") &&
+                        line &&
+                        stop
+                    ) {
+                        const stopLines = await listLinesForStop(stop);
+                        const normalizedStopLines = stopLines.map((v) =>
+                            v.trim().toUpperCase(),
+                        );
+                        if (!normalizedStopLines.includes(line)) {
+                            return c.json(
+                                {
+                                    error: `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`,
+                                },
+                                400,
+                            );
+                        }
+                    }
+
+                    if (provider === "mta-bus" && line && stop) {
+                        const busStops = await listMtaBusStopsForRoute(line);
+                        const hasStop = busStops.some(
+                            (s) => s.stopId.trim().toUpperCase() === stop,
+                        );
+                        if (!hasStop) {
+                            return c.json(
+                                {
+                                    error: `Invalid line+stop combination for NYC bus: line ${line} does not serve stop ${stop}`,
+                                },
+                                400,
+                            );
+                        }
+                    }
+
+                    if (provider === "cta-subway" && line && stop) {
+                        const ctaStopLines =
+                            await listCtaSubwayLinesForStop(stop);
+                        const normalizedStopLines = ctaStopLines.map((v) =>
+                            v.trim().toUpperCase(),
+                        );
+                        if (!normalizedStopLines.includes(line)) {
+                            return c.json(
+                                {
+                                    error: `Invalid line+stop combination for Chicago subway: line ${line} does not serve stop ${stop}`,
+                                },
+                                400,
+                            );
+                        }
                     }
                 }
             }
@@ -131,7 +246,6 @@ export function registerConfig(app: Hono, deps: dependency) {
                 .where(eq(devices.id, deviceId))
                 .returning({ config: devices.config });
 
-            // Refresh engine with new config
             await deps.aggregator.reloadSubscriptions();
             await deps.aggregator.refreshDevice(deviceId);
 

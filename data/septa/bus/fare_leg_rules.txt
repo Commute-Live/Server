@@ -1,0 +1,4 @@
+leg_group_id,network_id,fare_product_id
+contactless_single_trip,bus_metro,contactless_pay_per_ride
+key_single_trip,bus_metro,key_pay_per_ride
+tix_single_trip,bus_metro,tix_pay_per_ride

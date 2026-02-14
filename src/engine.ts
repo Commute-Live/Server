@@ -1,8 +1,9 @@
 import { cacheMap, getCacheEntry, markExpired, setCacheEntry } from "./cache.ts";
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
-import "./providers/mta.ts";
-import "./providers/mta-bus.ts";
+import { resolveStopName } from "./gtfs/stops_lookup.ts";
+import { resolveDirectionLabel } from "./transit/direction_label.ts";
+import "./providers/register.ts";
 
 type EngineOptions = {
     providers?: Map<string, ProviderPlugin>;
@@ -10,6 +11,11 @@ type EngineOptions = {
     refreshIntervalMs?: number;
     pushIntervalMs?: number;
     publish?: (topic: string, payload: unknown) => void;
+};
+
+type DeviceOptions = {
+    displayType: number;
+    scrolling: boolean;
 };
 
 const defaultPublish = (topic: string, payload: unknown) => {
@@ -20,6 +26,7 @@ const defaultPublish = (topic: string, payload: unknown) => {
 const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPlugin>) => {
     const fanout: FanoutMap = new Map();
     const deviceToKeys = new Map<string, Set<string>>();
+    const deviceOptions = new Map<string, DeviceOptions>();
 
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
@@ -41,9 +48,116 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
             deviceToKeys.set(sub.deviceId, new Set());
         }
         deviceToKeys.get(sub.deviceId)!.add(key);
+
+        if (!deviceOptions.has(sub.deviceId)) {
+            deviceOptions.set(sub.deviceId, {
+                displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
+                scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
+            });
+        }
     }
 
-    return { fanout, deviceToKeys };
+    return { fanout, deviceToKeys, deviceOptions };
+};
+
+const extractNextArrivals = (payload: unknown) => {
+    if (!payload || typeof payload !== "object") return [];
+    const body = payload as Record<string, unknown>;
+    const arrivalsRaw = body.arrivals;
+    if (!Array.isArray(arrivalsRaw)) return [];
+
+    return arrivalsRaw.slice(0, 3).map((item) => {
+        const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+        return {
+            arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
+            delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
+        };
+    });
+};
+
+type DeviceLinePayload = {
+    provider?: string;
+    line?: string;
+    stop?: string;
+    stopId?: string;
+    direction?: string;
+    directionLabel?: string;
+    fetchedAt?: string;
+    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number }>;
+};
+
+const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
+    const { providerId, params } = parseKeySegments(key);
+    const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+
+    const lineFromPayload = typeof body.line === "string" ? body.line : "";
+    const lineFromKey = typeof params.line === "string" ? params.line : "";
+    const line = lineFromPayload || lineFromKey;
+
+    const stopId =
+        typeof body.stopId === "string"
+            ? body.stopId
+            : typeof params.stop === "string" && params.stop.length > 0
+              ? params.stop
+              : undefined;
+    const stopFromPayload = typeof body.stop === "string" && body.stop.length > 0 ? body.stop : undefined;
+    const stopNameFromPayload = typeof body.stopName === "string" && body.stopName.length > 0 ? body.stopName : undefined;
+    const stopName =
+        stopNameFromPayload ??
+        (stopFromPayload && stopFromPayload !== stopId ? stopFromPayload : undefined) ??
+        (stopId ? resolveStopName(stopId) : undefined);
+    const directionFromPayload = typeof body.direction === "string" ? body.direction : undefined;
+    const directionFromKey = typeof params.direction === "string" && params.direction.length > 0 ? params.direction : undefined;
+    const direction = directionFromPayload ?? directionFromKey;
+    const directionLabelFromPayload =
+        typeof body.directionLabel === "string" && body.directionLabel.length > 0 ? body.directionLabel : undefined;
+    const directionLabel =
+        directionLabelFromPayload ??
+        resolveDirectionLabel({
+            line: line || undefined,
+            direction,
+            stop: stopName ?? stopId,
+        });
+
+    return {
+        provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
+        line: line || undefined,
+        stop: stopName ?? stopId,
+        stopId,
+        direction,
+        directionLabel: directionLabel || undefined,
+        fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
+        nextArrivals: extractNextArrivals(payload),
+    };
+};
+
+const buildDeviceCommandPayload = (keys: Set<string>, deviceOptions?: DeviceOptions) => {
+    const lines: DeviceLinePayload[] = [];
+
+    for (const key of keys) {
+        const entry = getCacheEntry(key);
+        if (!entry) continue;
+        const linePayload = buildDeviceLinePayload(key, entry.payload);
+        if (!linePayload.line) continue;
+        lines.push(linePayload);
+    }
+
+    lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
+
+    const primary = lines[0];
+    return {
+        displayType: deviceOptions?.displayType ?? 1,
+        scrolling: deviceOptions?.scrolling ?? false,
+        provider: primary?.provider,
+        line: primary?.line,
+        stop: primary?.stop,
+        stopId: primary?.stopId,
+        direction: primary?.direction,
+        directionLabel: primary?.directionLabel,
+        fetchedAt: new Date().toISOString(),
+        nextArrivals: primary?.nextArrivals ?? [],
+        lines,
+    };
 };
 
 export function startAggregatorEngine(options: EngineOptions): AggregatorEngine {
@@ -56,8 +170,19 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const inflight = new Map<string, Promise<void>>();
     let fanout: FanoutMap = new Map();
     let deviceToKeys = new Map<string, Set<string>>();
+    let deviceOptions = new Map<string, DeviceOptions>();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
+
+    const publishDeviceCommand = (deviceId: string) => {
+        const keys = deviceToKeys.get(deviceId);
+        if (!keys?.size) {
+            return;
+        }
+
+        const command = buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
+        publish(`/device/${deviceId}/commands`, command);
+    };
 
     const fetchKey = async (key: string) => {
         if (inflight.has(key)) {
@@ -78,7 +203,12 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
                 setCacheEntry(key, result.payload, result.ttlSeconds, now);
-                publish(`commutelive/key/${key}`, result.payload);
+                const deviceIds = fanout.get(key);
+                if (deviceIds?.size) {
+                    for (const deviceId of deviceIds) {
+                        publishDeviceCommand(deviceId);
+                    }
+                }
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
             } finally {
@@ -102,9 +232,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     };
 
     const pushCachedPayloads = () => {
-        for (const [key, entry] of cacheMap()) {
-            if (!fanout.has(key)) continue;
-            publish(`commutelive/key/${key}`, entry.payload);
+        for (const deviceId of deviceToKeys.keys()) {
+            publishDeviceCommand(deviceId);
         }
     };
 
@@ -113,6 +242,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         const maps = buildFanoutMaps(subs, providers);
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
+        deviceOptions = maps.deviceOptions;
         scheduleFetches();
     };
 

@@ -1,0 +1,6 @@
+fare_product_id,fare_product_name,rider_category_id,amount,currency,fare_media_id
+contactless_pay_per_ride,Bus and Metro Pay-Per-Ride Contactless,adult_full_fare,2.90,USD,contactless
+key_pay_per_ride,SEPTA Key Travel Wallet,adult_full_fare,2.90,USD,septa_key
+tix_pay_per_ride,Key Tix via SEPTA App,adult_full_fare,2.90,USD,key_tix_app
+cash_pay_per_ride,Cash,adult_full_fare,2.90,USD,cash
+quick_trip_pay_per_ride,Quick Trip,adult_full_fare,2.90,USD,quick_trip
