@@ -1,7 +1,7 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
 import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
-import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
+import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
     const parseLimit = (value: unknown, def = 30, max = 1000) => {
@@ -64,6 +64,21 @@ export function registerStops(app: Hono, _deps: dependency) {
             return c.json({ route, count: stops.length, stops: stops.slice(0, limit) });
         } catch (err) {
             const message = err instanceof Error ? err.message : "Failed to fetch NYC bus stops";
+            return c.json({ error: message }, 500);
+        }
+    });
+
+    app.get("/providers/new-york/routes/bus", async (c) => {
+        const q = (c.req.query("q") ?? "").trim().toLowerCase();
+        const limit = parseLimit(c.req.query("limit"), 300, 1000);
+        try {
+            let routes = await listMtaBusRoutes();
+            if (q.length > 0) {
+                routes = routes.filter((r) => r.id.toLowerCase().includes(q) || r.label.toLowerCase().includes(q));
+            }
+            return c.json({ count: routes.length, routes: routes.slice(0, limit) });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to fetch NYC bus routes";
             return c.json({ error: message }, 500);
         }
     });
