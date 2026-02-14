@@ -1,0 +1,2 @@
+rider_category_id,rider_category_name,is_default_fare_category
+adult_full_fare,Adult Full Fare,1

@@ -1,0 +1,27 @@
+route_id,direction_id,direction,direction_destination
+AIR,0,Inbound,Center City Philadelphia
+AIR,1,Outbound,Philadelphia International Airport
+CHE,0,Outbound,Chestnut Hill East
+CHE,1,Inbound,Center City Philadelphia
+CHW,0,Inbound,Center City Philadelphia
+CHW,1,Outbound,Chestnut Hill West
+CYN,0,Inbound,Center City Philadelphia
+CYN,1,Outbound,Cynwyd
+FOX,0,Outbound,Fox Chase
+FOX,1,Inbound,Center City Philadelphia
+LAN,0,Outbound,Lansdale or Doylestown
+LAN,1,Inbound,Center City Philadelphia
+MED,0,Inbound,Center City Philadelphia
+MED,1,Outbound,Wawa
+NOR,0,Outbound,Norristown
+NOR,1,Inbound,Center City Philadelphia
+PAO,0,Inbound,Center City Philadelphia
+PAO,1,Outbound,Malvern or Thorndale
+TRE,0,Inbound,Center City Philadelphia
+TRE,1,Outbound,Trenton
+WAR,0,Outbound,Warminster
+WAR,1,Inbound,Center City Philadelphia
+WIL,0,Inbound,Center City Philadelphia
+WIL,1,Outbound,"Wilmington or Newark, DE"
+WTR,0,Outbound,West Trenton
+WTR,1,Inbound,Center City Philadelphia

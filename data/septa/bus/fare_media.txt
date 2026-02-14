@@ -1,0 +1,6 @@
+fare_media_id,fare_media_name,fare_media_type
+contactless,Contactless Payment,3
+septa_key,SEPTA Key,2
+key_tix_app,Key Tix via SEPTA App,4
+cash,Cash,0
+quick_trip,Quick Trip,1

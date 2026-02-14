@@ -1,0 +1,332 @@
+route_id,direction_id,direction,direction_destination
+1,0,Northbound,Parx Casino
+1,1,Southbound,54th-City
+2,0,Southbound,20th-Johnston
+2,1,Northbound,Pulaski-Hunting Park
+3,0,Westbound,33rd-Cecil B. Moore
+3,1,Eastbound,Frankford Transit Center
+4,0,Southbound,Broad-Pattison
+4,1,Northbound,Fern Rock Transit Center
+5,0,Southbound,Front-Market
+5,1,Northbound,Frankford Transit Center
+6,0,Southbound,Olney Transit Center
+6,1,Northbound,Cheltenham-Ogontz
+7,0,Southbound,Pier 70
+7,1,Northbound,33rd-Dauphin
+8,0,Westbound,Olney Transit Center
+8,1,Eastbound,Frankford Transit Center
+9,0,Southbound,4th-Walnut
+9,1,Northbound,Andorra
+12,0,Eastbound,Columbus-Dock
+12,1,Westbound,50th-Woodland
+14,0,Northbound,Neshaminy & Oxford Valley Malls
+14,1,Southbound,Frankford Transit Center
+16,0,Southbound,City Hall
+16,1,Northbound,Cheltenham-Ogontz
+17,0,Northbound,Front-Market
+17,1,Southbound,20th-Johnston & Broad-Pattison
+18,0,Eastbound,Fox Chase
+18,1,Westbound,Cedarbrook Plaza
+19,0,Northbound,Torresdale Station
+19,1,Southbound,Frankford Transit Center
+20,0,Northbound,Philadelphia Mills
+20,1,Southbound,Frankford Transit Center
+21,0,Eastbound,Columbus-Dock
+21,1,Westbound,69th St Transit Center
+22,0,Northbound,Willow Grove & Warminster
+22,1,Southbound,Olney Transit Center
+23,0,Southbound,Center City
+23,1,Northbound,Chestnut Hill
+24,0,Northbound,Southampton & Rockledge
+24,1,Southbound,Frankford Transit Center
+25,0,Northbound,Frankford Transit Center
+25,1,Southbound,Columbus Commons
+26,0,Eastbound,Frankford Transit Center
+26,1,Westbound,Chelten Av Station
+27,0,Southbound,Broad-Carpenter
+27,1,Northbound,Plymouth Meeting Mall
+28,0,Westbound,Fern Rock Transit Center
+28,1,Eastbound,Torresdale-Cottman
+29,0,Eastbound,Pier 70
+29,1,Westbound,33rd-Dickinson
+30,0,Eastbound,30th St Station
+30,1,Westbound,69th St Transit Center
+31,0,Eastbound,City Hall
+31,1,Westbound,76th-City
+32,0,Southbound,Broad-Carpenter
+32,1,Northbound,Ridge-Lyceum
+33,0,Southbound,5th-Market
+33,1,Northbound,23rd-Venango
+35,0,Loop,Manayunk Roxborough Loop
+37,0,Westbound,Chester Transit Center
+37,1,Eastbound,Broad-Snyder
+38,0,Eastbound,5th-Market
+38,1,Westbound,Wissahickon Transit Center
+39,0,Eastbound,Richmond-Cumberland
+39,1,Westbound,33rd-Dauphin
+40,0,Eastbound,2nd-Lombard
+40,1,Westbound,Conshohocken-Monument
+41,0,Westbound,Chelten-Wissahickon
+41,1,Eastbound,Richmond-Orthodox
+42,0,Eastbound,2nd-Spruce
+42,1,Westbound,Wycombe or 61st-Pine
+43,0,Eastbound,Richmond-Cumberland
+43,1,Westbound,50th-Parkside
+44,0,Eastbound,Front-Market
+44,1,Westbound,Ardmore
+45,0,Southbound,Broad-Oregon
+45,1,Northbound,Center City
+46,0,Southbound,58th-Baltimore
+46,1,Northbound,63rd-Malvern
+47,0,Southbound,Whitman Plaza
+47,1,Northbound,5th-Godfrey
+48,0,Southbound,Front-Market
+48,1,Northbound,27th-Allegheny
+49,0,Southbound,29th-Snyder
+49,1,Northbound,33rd-Dauphin
+50,0,Northbound,Parx Casino
+50,1,Southbound,Frankford Transit Center
+51,0,Northbound,Chestnut Hill or Plymouth Meeting Mall
+51,1,Southbound,Olney Transit Center
+52,0,Southbound,49th-Woodland
+52,1,Northbound,54th-City or 50th-Parkside
+53,0,Northbound,Wayne-Carpenter
+53,1,Southbound,Broad-Hunting Park or G-Hunting Park
+54,0,Eastbound,Richmond-Cambria
+54,1,Westbound,33rd-Dauphin
+55,0,Northbound,Willow Grove & Doylestown
+55,1,Southbound,Olney Transit Center
+56,0,Westbound,23rd-Venango & Bakers Centre
+56,1,Eastbound,Torresdale-Cottman
+57,0,Southbound,Whitman Plaza
+57,1,Northbound,Rising Sun-Olney & Fern Rock Transit Center
+58,0,Northbound,Neshaminy Mall & Somerton
+58,1,Southbound,Frankford Transit Center
+59,0,Northbound,Castor-Bustleton
+59,1,Southbound,Arrott Transit Center
+60,0,Westbound,35th-Allegheny
+60,1,Eastbound,Richmond-Westmoreland
+61,0,Southbound,9th-Market
+61,1,Northbound,Manayunk
+62,0,Southbound,9th-Market
+62,1,Northbound,Andorra
+63,0,Northbound,Overbrook & Lankenau Medical Center
+63,1,Southbound,Columbus Commons or Food Distribution Center
+64,0,Westbound,50th-Parkside
+64,1,Eastbound,Pier 70
+65,0,Northbound,Germantown-Chelten
+65,1,Southbound,69th St Transit Center
+66,0,Southbound,Frankford Transit Center
+66,1,Northbound,Frankford-Knights
+67,0,Northbound,Philadelphia Mills & Bustleton
+67,1,Southbound,Frankford Transit Center
+68,0,Northbound,69th St Transit Center via UPS and PNC
+68,1,Southbound,Broad-Oregon via PNC and UPS
+70,0,Eastbound,Torresdale-Cottman & Frankford-Gregg
+70,1,Westbound,Fern Rock Transit Center
+71,0,Southbound,Broad-Erie
+71,1,Northbound,Cheltenham-Ogontz
+73,0,Northbound,Frankford Transit Center
+73,1,Southbound,Richmond-Westmoreland
+75,0,Westbound,Wayne Junction
+75,1,Eastbound,Arrott Transit Center
+77,0,Eastbound,Roosevelt-St. Vincent
+77,1,Westbound,Chestnut Hill
+78,0,Southbound,Center City
+78,1,Northbound,Cornwells Heights
+79,0,Eastbound,Columbus Commons
+79,1,Westbound,29th-Snyder
+80,0,Northbound,Horsham
+80,1,Southbound,Olney Transit Center
+81,0,Southbound,Broad-Erie
+81,1,Northbound,Cheltenham-Ogontz
+82,0,Westbound,Henry-Midvale & Wissahickon Transit Center
+82,1,Eastbound,Frankford Transit Center
+84,0,Northbound,Philadelphia Mills & Bustleton-County Line
+84,1,Southbound,Frankford Transit Center
+88,0,Northbound,Bethayres or Frankford-Gregg
+88,1,Southbound,Frankford Transit Center
+89,0,Westbound,Front-Dauphin
+89,1,Eastbound,Arrott Transit Center
+90,0,Eastbound,Plymouth Meeting Mall
+90,1,Westbound,Norristown Transit Center
+92,0,Eastbound,King of Prussia
+92,1,Westbound,Exton
+93,0,Westbound,Pottstown
+93,1,Eastbound,Norristown Transit Center
+94,0,Northbound,Montgomery Mall
+94,1,Southbound,Chestnut Hill
+95,0,Southbound,Gulph Mills
+95,1,Northbound,Willow Grove
+96,0,Northbound,Lansdale
+96,1,Southbound,Norristown Transit Center
+97,0,Eastbound,Chestnut Hill
+97,1,Westbound,Norristown Transit Center
+98,0,Eastbound,Plymouth Meeting Mall
+98,1,Westbound,Norristown Transit Center
+99,0,Westbound,Phoenixville
+99,1,Eastbound,Norristown Transit Center
+103,0,Northbound,Ardmore
+103,1,Southbound,69th St Transit Center
+104,0,Westbound,West Chester University
+104,1,Eastbound,69th St Transit Center
+105,0,Westbound,Rosemont
+105,1,Eastbound,69th St Transit Center
+106,0,Westbound,Ardmore & Paoli
+106,1,Eastbound,69th St Transit Center
+107,0,Westbound,Lawrence Park
+107,1,Eastbound,69th St Transit Center
+108,0,Southbound,Airport & Airport Business Center
+108,1,Northbound,69th St Transit Center
+109,0,Westbound,Chester Transit Center
+109,1,Eastbound,69th St Transit Center
+110,0,Westbound,Springfield Mall & Penn State
+110,1,Eastbound,69th St Transit Center
+111,0,Westbound,Chadds Ford & Penn State
+111,1,Eastbound,69th St Transit Center
+112,0,Westbound,Delaware County Community College
+112,1,Eastbound,69th St Transit Center
+113,0,Westbound,Claymont Transit Center
+113,1,Eastbound,69th St Transit Center
+114,0,Westbound,Wawa Station & I-95 Industrial Park
+114,1,Eastbound,Darby Transit Center
+115,0,Northbound,Delaware County Community College
+115,1,Southbound,Airport
+117,0,Northbound,Penn State
+117,1,Southbound,I-95 Industrial Park
+118,0,Northbound,Newtown Square
+118,1,Southbound,Chester Transit Center
+119,0,Northbound,Cheyney University
+119,1,Southbound,Chester Transit Center
+120,0,Westbound,Cheyney University
+120,1,Eastbound,69th St Transit Center
+123,0,Westbound,King of Prussia
+123,1,Eastbound,69th St Transit Center
+124,0,Westbound,King of Prussia & Chesterbrook
+124,1,Eastbound,13th-Market
+125,0,Westbound,King of Prussia & Valley Forge
+125,1,Eastbound,13th-Market
+126,0,Westbound,Lawrence Park
+126,1,Eastbound,69th St Transit Center
+127,0,Eastbound,Trenton Transit Center
+127,1,Westbound,Oxford Valley Mall
+128,0,Southbound,Neshaminy Mall
+128,1,Northbound,Oxford Valley Mall
+129,0,Southbound,Frankford-Knights
+129,1,Northbound,Oxford Valley Mall
+130,0,Northbound,Bucks County Community College
+130,1,Southbound,Frankford-Knights
+131,0,Westbound,Audubon
+131,1,Eastbound,Norristown Transit Center
+132,0,Northbound,Telford
+132,1,Southbound,Montgomery Mall
+133,0,Northbound,Bensalem
+133,1,Southbound,Frankford-Knights
+135,0,Westbound, Coatesville
+135,1,Eastbound,West Chester Transit Center
+139,0,Westbound,Limerick
+139,1,Eastbound,King of Prussia
+150,0,Eastbound,Parx Casino
+150,1,Westbound,Plymouth Meeting Mall
+201,0,Eastbound,Fort Washington Office Center
+201,1,Westbound,Fort Washington Station
+204,0,Westbound,Eagleview
+204,1,Eastbound,Paoli Station
+206,0,Westbound,The Commons at Great Valley
+206,1,Eastbound,Paoli Station
+310,0,Loop,Horsham Loop
+409,0,Southbound,84th-Crane
+411,1,Northbound,46th-Ludlow
+415,0,Southbound,Passyunk-Island
+426,0,Westbound,10th-Lycoming
+426,1,Eastbound,Bridge-Torresdale
+428,0,Westbound,10th-Lycoming
+428,1,Eastbound,Richmond-Venago
+433,0,Westbound,10th-Lycoming
+433,1,Eastbound,Castor-Bleigh
+438,0,Eastbound,Germantown-Chelten
+438,1,Westbound,Henry-Cinnaminson
+439,0,Eastbound,Germantown-Chelten
+439,1,Westbound,Andorra & Roxborough
+441,0,Southbound,Broad-Vine
+441,1,Northbound,Ridge-Summit
+442,1,Northbound,Barren Hill
+445,0,Eastbound,Frankford Transit Center
+446,0,Southbound,29th-Allegheny
+446,1,Northbound,Henry-Cinnaminson
+447,0,Eastbound,Frankford Transit Center
+447,1,Westbound,Henry-Cinnaminson
+448,1,Northbound,Ridge-Summit
+450,0,Northbound,Bustleton-Verree
+450,1,Southbound,Frankford-Linden
+452,0,Westbound,Northeast-Gorman
+452,1,Eastbound,Academy-Medford
+461,0,Westbound,Academy-Chalfont
+461,1,Eastbound,Bustleton-Verree
+462,0,Westbound,Academy-Chalfont
+462,1,Eastbound,Alburger-Verree
+475,0,Southbound,Verree-Marchman
+475,1,Northbound,Bustleton-County Line
+476,0,Westbound,Verree-Marchman
+476,1,Eastbound,Roosevelt-Southampton
+477,0,Westbound,Verree-Marchman
+477,1,Eastbound,Comly-Academy
+478,0,Northbound,Verree-Marchman
+478,1,Southbound,Roosevelt-Welsh
+484,0,Southbound,Cottman-Torresdale
+484,1,Northbound,Holy Redeemer Hospital
+490,0,Northbound,Verree-Marchman
+490,1,Southbound,Fox Chase Loop
+492,0,Southbound,Verree-Marchman
+492,1,Northbound,Bustleton-Rennard
+495,0,Southbound,10th-Lycoming
+495,1,Northbound,Southampton-Worthington
+47M,0,Northbound,7th-Spring Garden via 9th St
+47M,1,Southbound,Whitman Plaza
+B1,0,Southbound,NRG Station
+B1,1,Northbound,Fern Rock Transit Center
+B1 OWL,0,Southbound,NRG Station
+B1 OWL,1,Northbound,Fern Rock Transit Center
+B2,0,Southbound,Walnut-Locust
+B2,1,Northbound,Fern Rock Transit Center
+B3,0,Southbound,8th-Market
+B3,1,Northbound,Fern Rock or Olney Transit Center
+BLVDDIR,0,Northbound,Neshaminy Mall
+BLVDDIR,1,Southbound,Frankford Transit Center
+D1,0,Southbound,Orange St/Media
+D1,1,Northbound,69th St Transit Center
+D1 BUS,0,Southbound,Orange St/Media
+D1 BUS,1,Northbound,69th St Transit Center
+D2,0,Southbound,Chester Pike/Sharon Hill
+D2,1,Northbound,69th St Transit Center
+D2 BUS,0,Southbound,Chester Pike/Sharon Hill
+D2 BUS,1,Northbound,69th St Transit Center
+G1,0,Westbound,63rd-Girard
+G1,1,Eastbound,Richmond-Westmoreland or Frankford-Delaware
+K,0,Westbound,Ridge-Midvale
+K,1,Eastbound,Arrott Transit Center
+L1,0,Eastbound,Frankford Transit Center
+L1,1,Westbound,69th St Transit Center
+L1 OWL,0,Eastbound,Frankford Transit Center
+L1 OWL,1,Westbound,69th St Transit Center
+LUCYGO,0,Loop,Gold Loop
+LUCYGR,0,Loop,Green Loop
+M1,0,Northbound,Norristown Transit Center
+M1,1,Southbound,69th St Transit Center
+MANNLP,0,Loop,The Mann and Center City
+T1,0,Eastbound,13th St
+T1,1,Westbound,63rd-Malvern/Overbrook
+T2,0,Eastbound,13th St
+T2,1,Westbound,61st-Baltimore/Angora
+T3,0,Eastbound,13th St
+T3,1,Westbound,Yeadon or Darby Transit Center
+T4,0,Eastbound,13th St
+T4,1,Westbound,Darby Transit Center
+T5,0,Eastbound,13th St
+T5,1,Westbound,80th St/Eastwick
+T5 BUS,0,Eastbound,Elmwood-Island
+T5 BUS,1,Westbound,Eastwick
+T BUS,0,Eastbound,15th St/City Hall
+T BUS,1,Westbound,40th-Market
+FXCB,0,Inbound,Wayne Junction
+FXCB,1,Outbound,Fox Chase

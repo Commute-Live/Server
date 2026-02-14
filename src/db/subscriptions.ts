@@ -1,13 +1,15 @@
 import { devices } from "./schema/schema.ts";
 import type { DeviceConfig, LineConfig, Subscription } from "../types.ts";
 
-const isLineConfig = (value: unknown): value is LineConfig =>
-    !!value &&
-    typeof value === "object" &&
-    typeof (value as LineConfig).provider === "string" &&
-    typeof (value as LineConfig).line === "string" &&
-    (typeof (value as LineConfig).stop === "string" || (value as LineConfig).stop === undefined) &&
-    (typeof (value as LineConfig).direction === "string" || (value as LineConfig).direction === undefined);
+const isLineConfig = (value: unknown): value is LineConfig => {
+    if (!value || typeof value !== "object") return false;
+    const v = value as LineConfig;
+    if (typeof v.provider !== "string") return false;
+    if (typeof v.line !== "string") return false;
+    if (v.stop !== undefined && typeof v.stop !== "string") return false;
+    if (v.direction !== undefined && typeof v.direction !== "string") return false;
+    return true;
+};
 
 export async function loadSubscriptionsFromDb(db: { select: Function }) {
     const rows = await db.select({ id: devices.id, config: devices.config }).from(devices);
