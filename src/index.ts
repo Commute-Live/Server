@@ -1,5 +1,6 @@
 import "dotenv/config";
 import { Hono } from "hono/quick";
+import { cors } from "hono/cors";
 import { startDb } from "./db/db.ts";
 import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
@@ -21,6 +22,27 @@ const aggregator = startAggregatorEngine({
 });
 
 const app = new Hono();
+
+const allowedOrigins = (
+    process.env.CORS_ORIGINS ??
+    "http://localhost:8081,http://127.0.0.1:8081"
+)
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean);
+
+app.use(
+    "*",
+    cors({
+        origin: (origin) => {
+            if (!origin) return "";
+            return allowedOrigins.includes(origin) ? origin : "";
+        },
+        credentials: true,
+        allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+        allowHeaders: ["Content-Type", "Authorization", "X-CSRF-Token"],
+    }),
+);
 
 registerRoutes(app, { sql, db, aggregator });
 
