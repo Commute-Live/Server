@@ -39,6 +39,8 @@ function parseCsvLine(line: string): string[] {
 
 function findStopsPath(): string | null {
     const candidates = [
+        resolve(import.meta.dir, "../../data/mta/stops.txt"),
+        resolve(process.cwd(), "data/mta/stops.txt"),
         resolve(import.meta.dir, "../../data/gtfs_subway/stops.txt"),
         resolve(process.cwd(), "data/gtfs_subway/stops.txt"),
         resolve(import.meta.dir, "../../gtfs_subway/stops.txt"),
@@ -53,6 +55,8 @@ function findStopsPath(): string | null {
 
 function findGtfsFilePath(fileName: string): string | null {
     const candidates = [
+        resolve(import.meta.dir, `../../data/mta/${fileName}`),
+        resolve(process.cwd(), `data/mta/${fileName}`),
         resolve(import.meta.dir, `../../data/gtfs_subway/${fileName}`),
         resolve(process.cwd(), `data/gtfs_subway/${fileName}`),
         resolve(import.meta.dir, `../../gtfs_subway/${fileName}`),
