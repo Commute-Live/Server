@@ -27,6 +27,7 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     const fanout: FanoutMap = new Map();
     const deviceToKeys = new Map<string, Set<string>>();
     const deviceOptions = new Map<string, DeviceOptions>();
+    const deviceLastActive = new Map<string, number>();
 
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
@@ -55,9 +56,14 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
                 scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
             });
         }
+
+        if (!deviceLastActive.has(sub.deviceId) && typeof sub.lastActive === "string") {
+            const ts = Date.parse(sub.lastActive);
+            if (Number.isFinite(ts)) deviceLastActive.set(sub.deviceId, ts);
+        }
     }
 
-    return { fanout, deviceToKeys, deviceOptions };
+    return { fanout, deviceToKeys, deviceOptions, deviceLastActive };
 };
 
 const extractNextArrivals = (payload: unknown) => {
@@ -166,6 +172,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const publish = options.publish ?? defaultPublish;
     const refreshIntervalMs = options.refreshIntervalMs ?? 1000;
     const pushIntervalMs = options.pushIntervalMs ?? 30_000;
+    const HEARTBEAT_STALE_MS = 10 * 60_000;
 
     const inflight = new Map<string, Promise<void>>();
     let fanout: FanoutMap = new Map();
@@ -173,8 +180,13 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     let deviceOptions = new Map<string, DeviceOptions>();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
+    let deviceLastActive = new Map<string, number>();
 
     const publishDeviceCommand = (deviceId: string) => {
+        const lastSeen = deviceLastActive.get(deviceId);
+        if (lastSeen && Date.now() - lastSeen > HEARTBEAT_STALE_MS) {
+            return;
+        }
         const keys = deviceToKeys.get(deviceId);
         if (!keys?.size) {
             return;
@@ -243,6 +255,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
+        deviceLastActive = maps.deviceLastActive;
         scheduleFetches();
     };
 

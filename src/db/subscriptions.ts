@@ -10,7 +10,7 @@ const isLineConfig = (value: unknown): value is LineConfig =>
     (typeof (value as LineConfig).direction === "string" || (value as LineConfig).direction === undefined);
 
 export async function loadSubscriptionsFromDb(db: { select: Function }) {
-    const rows = await db.select({ id: devices.id, config: devices.config }).from(devices);
+    const rows = await db.select({ id: devices.id, config: devices.config, lastActive: devices.lastActive }).from(devices);
 
     const subs: Subscription[] = [];
 
@@ -38,6 +38,7 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
                 },
                 displayType,
                 scrolling,
+                lastActive: typeof row.lastActive === "string" ? row.lastActive : undefined,
             });
         }
     }

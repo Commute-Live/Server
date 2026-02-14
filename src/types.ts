@@ -5,6 +5,7 @@ export type Subscription = {
     config: Record<string, string>;
     displayType?: number;
     scrolling?: boolean;
+    lastActive?: string;
 };
 
 export type LineConfig = {
