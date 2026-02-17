@@ -28,6 +28,32 @@ type SeptaArrivalsResponse = Record<
     }>
 >;
 
+const detectOffsetMinutesForTimezone = (timezone: string, utcLikeMs: number) => {
+    const probe = new Date(utcLikeMs);
+    const utcWall = new Date(probe.toLocaleString("en-US", { timeZone: "UTC" }));
+    const zoneWall = new Date(probe.toLocaleString("en-US", { timeZone: timezone }));
+    return Math.round((utcWall.getTime() - zoneWall.getTime()) / 60000);
+};
+
+const parseLocalTimeToIso = (
+    timezone: string,
+    year: number,
+    month: number,
+    day: number,
+    hour: number,
+    minute: number,
+    second: number,
+) => {
+    const asUtcLike = Date.UTC(year, month - 1, day, hour, minute, second);
+    const offsetMinutes = detectOffsetMinutesForTimezone(timezone, asUtcLike);
+    return new Date(asUtcLike + offsetMinutes * 60_000).toISOString();
+};
+
+const cleanStationLabel = (value?: string | null) => {
+    if (!value) return "";
+    return value.replace(/\s+Departures:\s*.*/i, "").trim();
+};
+
 const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
     if (!timeStr) return null;
     const trimmed = timeStr.trim();
@@ -46,8 +72,25 @@ const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
         if (ampm === "PM" && hh !== 12) hh += 12;
         if (ampm === "AM" && hh === 12) hh = 0;
         const now = new Date(nowMs);
-        const candidate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), hh, mm, 0));
-        return candidate.toISOString();
+        let candidateMs = Date.parse(
+            parseLocalTimeToIso(
+                "America/New_York",
+                now.getUTCFullYear(),
+                now.getUTCMonth() + 1,
+                now.getUTCDate(),
+                hh,
+                mm,
+                0,
+            ),
+        );
+
+        // SEPTA times are local clock times without date. If the parsed value is far in the past,
+        // treat it as the next day (late-night rollover window).
+        if (Number.isFinite(candidateMs) && candidateMs < nowMs - 3 * 60 * 60 * 1000) {
+            candidateMs += 24 * 60 * 60 * 1000;
+        }
+
+        if (Number.isFinite(candidateMs)) return new Date(candidateMs).toISOString();
     }
     return null;
 };
@@ -89,6 +132,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     }
     const json = (await res.json()) as SeptaArrivalsResponse;
     const stationKey = Object.keys(json)[0];
+    const stationLabel = cleanStationLabel(stationKey) || station;
     const body = stationKey ? json[stationKey]?.[0] : undefined;
     const northRaw = body?.Northbound ?? [];
     const southRaw = body?.Southbound ?? [];
@@ -112,10 +156,10 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         payload: {
             provider: "septa-rail",
             line: requestedLine || normalizeLine(first?.line) || "SEPTA",
-            stop: stationKey ?? station,
+            stop: stationLabel,
             stopId: stationRaw,
             direction: direction ?? first?.direction,
-            directionLabel: first?.path ?? first?.destination ?? stationKey ?? station,
+            directionLabel: first?.path ?? first?.destination ?? stationLabel,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
