@@ -54,6 +54,14 @@ const cleanStationLabel = (value?: string | null) => {
     return value.replace(/\s+Departures:\s*.*/i, "").trim();
 };
 
+const cleanDirectionLabel = (value?: string | null) => {
+    if (!value) return "";
+    return value
+        .replace(/\s+Departures:\s*.*/i, "")
+        .replace(/\s+Station$/i, "")
+        .trim();
+};
+
 const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
     if (!timeStr) return null;
     const trimmed = timeStr.trim();
@@ -161,6 +169,11 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
     const first = (direction === "S" ? south : direction === "N" ? north : [...north, ...south])[0];
+    const directionLabel =
+        cleanDirectionLabel(first?.destination) ||
+        cleanDirectionLabel(first?.next_station) ||
+        stationLabel ||
+        cleanDirectionLabel(first?.path);
     if (requestedLineAliases.length > 0 && arrivals.length === 0) {
         const available = [...northRaw, ...southRaw].map((a) => normalizeLine(a.line)).filter((v) => v.length > 0);
         const sample = Array.from(new Set(available)).slice(0, 12);
@@ -176,7 +189,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
             stop: stationLabel,
             stopId: stationRaw,
             direction: direction ?? first?.direction,
-            directionLabel: first?.path ?? first?.destination ?? stationLabel,
+            directionLabel,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
