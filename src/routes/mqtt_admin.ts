@@ -62,8 +62,21 @@ export function registerMqttAdmin(app: Hono) {
         }
 
         const limitRaw = c.req.query("limit") ?? "200";
+        const secondsRaw = (c.req.query("seconds") ?? "all").trim().toLowerCase();
         const limit = Number(limitRaw);
-        const events = getRecentMqttDebugEvents(Number.isFinite(limit) ? limit : 200);
+        const nowMs = Date.now();
+        const seconds =
+            secondsRaw === "all" || secondsRaw === ""
+                ? null
+                : Number.isFinite(Number(secondsRaw))
+                  ? Math.max(1, Math.floor(Number(secondsRaw)))
+                  : null;
+        const events = getRecentMqttDebugEvents(Number.isFinite(limit) ? limit : 200).filter((event) => {
+            if (seconds == null) return true;
+            const tsMs = Date.parse(event.ts);
+            if (!Number.isFinite(tsMs)) return false;
+            return nowMs - tsMs <= seconds * 1000;
+        });
         return c.json({ events }, 200);
     });
 
@@ -78,13 +91,29 @@ export function registerMqttAdmin(app: Hono) {
         }
 
         const limitRaw = c.req.query("limit") ?? "200";
+        const secondsRaw = (c.req.query("seconds") ?? "all").trim().toLowerCase();
         const topicFilter = (c.req.query("topic") ?? "").trim();
         const directionFilter = (c.req.query("direction") ?? "").trim().toLowerCase();
         const limit = Number(limitRaw);
+        const seconds =
+            secondsRaw === "all" || secondsRaw === ""
+                ? null
+                : Number.isFinite(Number(secondsRaw))
+                  ? Math.max(1, Math.floor(Number(secondsRaw)))
+                  : null;
+        const nowMs = Date.now();
         const events = getRecentMqttDebugEvents(Number.isFinite(limit) ? limit : 200).filter((event) => {
             const topicOk = !topicFilter || (event.topic ?? "").toLowerCase().includes(topicFilter.toLowerCase());
             const directionOk = !directionFilter || event.direction === directionFilter;
-            return topicOk && directionOk;
+            const secondsOk =
+                seconds == null
+                    ? true
+                    : (() => {
+                          const tsMs = Date.parse(event.ts);
+                          if (!Number.isFinite(tsMs)) return false;
+                          return nowMs - tsMs <= seconds * 1000;
+                      })();
+            return topicOk && directionOk && secondsOk;
         });
 
         const rows = events
@@ -139,10 +168,17 @@ export function registerMqttAdmin(app: Hono) {
           <option value="state" ${directionFilter === "state" ? "selected" : ""}>state</option>
           <option value="error" ${directionFilter === "error" ? "selected" : ""}>error</option>
         </select>
+        <select name="seconds">
+          <option value="all" ${seconds == null ? "selected" : ""}>All time</option>
+          <option value="10" ${seconds === 10 ? "selected" : ""}>Last 10s</option>
+          <option value="30" ${seconds === 30 ? "selected" : ""}>Last 30s</option>
+          <option value="60" ${seconds === 60 ? "selected" : ""}>Last 60s</option>
+          <option value="300" ${seconds === 300 ? "selected" : ""}>Last 5m</option>
+        </select>
         <input name="limit" type="number" min="1" max="1000" value="${escapeHtml(limitRaw)}" />
         <button type="submit">Apply</button>
       </form>
-      <p class="muted">Rows shown: ${events.length}</p>
+      <p class="muted">Rows shown: ${events.length} ${seconds == null ? "(all time)" : `(last ${seconds}s)`}</p>
       <table>
         <thead>
           <tr>
