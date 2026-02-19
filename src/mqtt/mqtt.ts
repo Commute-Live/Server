@@ -20,7 +20,7 @@ const debugEvents: MqttDebugEvent[] = [];
 
 const toPayloadPreview = (value: string | Buffer | Uint8Array) => {
     const text = typeof value === "string" ? value : Buffer.from(value).toString("utf8");
-    return text.length > 400 ? `${text.slice(0, 400)}…` : text;
+    return text;
 };
 
 const pushDebugEvent = (event: Omit<MqttDebugEvent, "id" | "ts">) => {
