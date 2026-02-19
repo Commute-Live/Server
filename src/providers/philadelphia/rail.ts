@@ -1,6 +1,6 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
-import { resolveSeptaRailStopName } from "./stops_lookup.ts";
+import { resolveSeptaRailRouteAliases, resolveSeptaRailStopName } from "./stops_lookup.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
@@ -110,6 +110,12 @@ const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = D
         .sort((a, b) => Date.parse(a.arrivalTime!) - Date.parse(b.arrivalTime!));
 
 const normalizeLine = (line?: string | null) => (line ?? "").trim().toUpperCase();
+const normalizeLineForMatch = (line?: string | null) =>
+    (line ?? "")
+        .trim()
+        .toUpperCase()
+        .replace(/\s+LINE$/i, "")
+        .replace(/\s+/g, " ");
 
 const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
@@ -117,7 +123,20 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     if (!stationRaw.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
     const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
-    const requestedLine = normalizeLine(params.line);
+    const requestedLineRaw = normalizeLine(params.line);
+    const requestedLineAliases = resolveSeptaRailRouteAliases(requestedLineRaw);
+    const matchesRequestedLine = (line?: string | null) => {
+        const value = normalizeLineForMatch(line);
+        if (!value || requestedLineAliases.length === 0) return true;
+        return requestedLineAliases.some((alias) => {
+            const normalizedAlias = normalizeLineForMatch(alias);
+            return (
+                value === normalizedAlias ||
+                value.includes(normalizedAlias) ||
+                normalizedAlias.includes(value)
+            );
+        });
+    };
 
     const search = new URLSearchParams({
         station: station,
@@ -136,26 +155,24 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const body = stationKey ? json[stationKey]?.[0] : undefined;
     const northRaw = body?.Northbound ?? [];
     const southRaw = body?.Southbound ?? [];
-    const north =
-        requestedLine.length > 0 ? northRaw.filter((a) => normalizeLine(a.line) === requestedLine) : northRaw;
-    const south =
-        requestedLine.length > 0 ? southRaw.filter((a) => normalizeLine(a.line) === requestedLine) : southRaw;
+    const north = requestedLineAliases.length > 0 ? northRaw.filter((a) => matchesRequestedLine(a.line)) : northRaw;
+    const south = requestedLineAliases.length > 0 ? southRaw.filter((a) => matchesRequestedLine(a.line)) : southRaw;
 
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
     const first = (direction === "S" ? south : direction === "N" ? north : [...north, ...south])[0];
-    if (requestedLine.length > 0 && arrivals.length === 0) {
+    if (requestedLineAliases.length > 0 && arrivals.length === 0) {
         const available = [...northRaw, ...southRaw].map((a) => normalizeLine(a.line)).filter((v) => v.length > 0);
         const sample = Array.from(new Set(available)).slice(0, 12);
         console.log(
-            `[SEPTA rail] no arrivals after line filter stationRaw="${stationRaw}" stationQuery="${station}" stationKey="${stationKey ?? ""}" requestedLine="${requestedLine}" availableLines=${sample.join(",")}`,
+            `[SEPTA rail] no arrivals after line filter stationRaw="${stationRaw}" stationQuery="${station}" stationKey="${stationKey ?? ""}" requestedLine="${requestedLineRaw}" aliases="${requestedLineAliases.join("|")}" availableLines=${sample.join(",")}`,
         );
     }
 
     return {
         payload: {
             provider: "septa-rail",
-            line: requestedLine || normalizeLine(first?.line) || "SEPTA",
+            line: requestedLineRaw || normalizeLine(first?.line) || "SEPTA",
             stop: stationLabel,
             stopId: stationRaw,
             direction: direction ?? first?.direction,
