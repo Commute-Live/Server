@@ -1,7 +1,6 @@
 services:
   postgres:
     image: postgres:16
-    container_name: commutelive-postgres
     restart: unless-stopped
     ports:
       - "${POSTGRES_PORT_BIND:-127.0.0.1:5432}:5432"
@@ -18,5 +17,65 @@ services:
       timeout: 5s
       retries: 10
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "${MQTT_PORT_BIND:-1883}:1883"
+    environment:
+      MQTT_USERNAME: ${MQTT_USERNAME:-commutelive}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-commutelive}
+    volumes:
+      - ./docker/mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    command: >
+      sh -c "if [ ! -f /mosquitto/data/passwd ]; then
+      mosquitto_passwd -b -c /mosquitto/data/passwd \"$$MQTT_USERNAME\" \"$$MQTT_PASSWORD\";
+      else
+      mosquitto_passwd -b /mosquitto/data/passwd \"$$MQTT_USERNAME\" \"$$MQTT_PASSWORD\";
+      fi &&
+      chown root:root /mosquitto/data/passwd &&
+      chmod 0644 /mosquitto/data/passwd &&
+      exec mosquitto -c /mosquitto/config/mosquitto.conf"
+    healthcheck:
+      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -p 1883 -u \"$${MQTT_USERNAME}\" -P \"$${MQTT_PASSWORD}\" -t _health -m ok >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8080
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_PROTOCOL: mqtt
+      MQTT_USERNAME: ${MQTT_USERNAME:-commutelive}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-commutelive}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+    ports:
+      - "${API_PORT_BIND:-8080}:8080"
+    command: sh -c "bun run db:migrate && bun run src/index.ts"
+    healthcheck:
+      test: ["CMD-SHELL", "bun -e \"fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
 volumes:
   pgdata:
+  mosquitto_data:
+  mosquitto_log:

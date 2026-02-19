@@ -1,55 +1,35 @@
 # commuteliveserver
 
-Install Bun
-https://github.com/oven-sh/bun?tab=readme-ov-file
+## Run Everything With Docker (One Command)
 
-To install dependencies:
-
-```bash
-bun install
-```
-
-To run:
+1. Create env file:
 
 ```bash
-bun run index.ts
+cp .env.example .env
 ```
 
-This project was created using `bun init` in bun v1.3.8. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
-
-Initialize database
-docker compuse up -d
-
-Database Schema:
-
-If on server:
-
-set -a
-source /opt/commute-live/app.env
-set +a
-bun run db:migrate
-
-After local & server:
-bun run db:migrate
-
-MQTT (local server -> DigitalOcean broker):
-
-Set these in `.env`:
+2. Set production secrets in `.env` (`JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, DB creds, MQTT creds).
+3. Start all services:
 
 ```bash
-MQTT_HOST=YOUR_DROPLET_IP_OR_DOMAIN
-MQTT_PORT=1883
-MQTT_USERNAME=YOUR_MQTT_USERNAME
-MQTT_PASSWORD=YOUR_MQTT_PASSWORD
-MQTT_PROTOCOL=mqtt
+docker compose up --build -d
 ```
 
-On `POST /device/:device_id/heartbeat`, the server publishes to:
+This runs:
+- Bun API (`commutelive-api`)
+- Postgres (`commutelive-postgres`)
+- Mosquitto (`commutelive-mosquitto`)
 
-`devices/:device_id/commands`
+The API container runs DB migrations on startup (`bun run db:migrate`) before starting the server.
 
-SERVER: View Database information
-docker exec -it commutelive-postgres psql -U commute_live_user -d commutelive
+## Useful Commands
 
-List Tables: \dt
-Describe Table: \d devices
+```bash
+docker compose logs -f
+docker compose down
+docker compose down -v
+```
+
+```bash
+docker exec -it commutelive-postgres psql -U commute -d commutelive
+```
