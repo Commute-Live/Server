@@ -51,6 +51,97 @@ const ensureAdminAuth = (appName: string, authHeader: string | undefined) => {
 };
 
 export function registerMqttAdmin(app: Hono) {
+    const normalizeEta = (etaRaw: string) => {
+        const upper = etaRaw.trim().toUpperCase();
+        if (!upper) return "--";
+        if (upper === "NOW" || upper === "DUE") return "DUE";
+        const minutesMatch = upper.match(/(\d+)/);
+        if (minutesMatch) {
+            const minutes = Number(minutesMatch[1]);
+            if (Number.isFinite(minutes)) return minutes <= 1 ? "DUE" : `${minutes}m`;
+        }
+        return etaRaw;
+    };
+
+    const etaFromArrivals = (arrivals: unknown, fetchedAtRaw?: string) => {
+        if (!Array.isArray(arrivals) || arrivals.length === 0) return "--";
+        const fetchedAtMs = fetchedAtRaw ? Date.parse(fetchedAtRaw) : Number.NaN;
+        const hasFetchedAt = Number.isFinite(fetchedAtMs);
+        let sawDue = false;
+        for (const item of arrivals) {
+            if (!item || typeof item !== "object") continue;
+            const row = item as Record<string, unknown>;
+            const arrival = typeof row.arrivalTime === "string" ? row.arrivalTime : "";
+            if (!arrival) continue;
+            const arrivalMs = Date.parse(arrival);
+            if (!Number.isFinite(arrivalMs)) continue;
+            if (!hasFetchedAt) {
+                return arrival.length >= 16 ? arrival.slice(11, 16) : "--";
+            }
+            const diffSec = Math.max(0, Math.floor((arrivalMs - fetchedAtMs) / 1000));
+            const mins = Math.floor((diffSec + 59) / 60);
+            const label = mins <= 1 ? "DUE" : `${mins}m`;
+            if (label === "DUE") {
+                sawDue = true;
+                continue;
+            }
+            return label;
+        }
+        return sawDue ? "DUE" : "--";
+    };
+
+    const ledPreviewFromEvent = (topic: string | undefined, payloadPreview: string | undefined) => {
+        if (!payloadPreview || !topic) return "";
+        let data: Record<string, unknown> | null = null;
+        try {
+            data = JSON.parse(payloadPreview) as Record<string, unknown>;
+        } catch {
+            return "";
+        }
+        if (!data || typeof data !== "object") return "";
+
+        // ESP-reported currently rendered rows.
+        if (topic.includes("/display")) {
+            const row1 = (data.row1 ?? {}) as Record<string, unknown>;
+            const row2 = (data.row2 ?? {}) as Record<string, unknown>;
+            const r1Line = typeof row1.line === "string" ? row1.line : "";
+            const r1Label = typeof row1.label === "string" ? row1.label : "";
+            const r1Eta = typeof row1.eta === "string" ? normalizeEta(row1.eta) : "--";
+            const r2Line = typeof row2.line === "string" ? row2.line : "";
+            const r2Label = typeof row2.label === "string" ? row2.label : "";
+            const r2Eta = typeof row2.eta === "string" ? normalizeEta(row2.eta) : "--";
+            const first = r1Line ? `${r1Line} ${r1Label} ${r1Eta}`.trim() : "";
+            const second = r2Line ? `${r2Line} ${r2Label} ${r2Eta}`.trim() : "";
+            return [first, second].filter(Boolean).join(" | ");
+        }
+
+        // Inferred from outgoing command payload when ESP report is not present.
+        if (topic.includes("/commands")) {
+            const lines = Array.isArray(data.lines) ? data.lines : [];
+            const fetchedAt = typeof data.fetchedAt === "string" ? data.fetchedAt : undefined;
+            const parts = lines
+                .slice(0, 2)
+                .map((entry) => {
+                    if (!entry || typeof entry !== "object") return "";
+                    const row = entry as Record<string, unknown>;
+                    const line = typeof row.line === "string" ? row.line : "";
+                    if (!line) return "";
+                    const label =
+                        typeof row.directionLabel === "string"
+                            ? row.directionLabel
+                            : typeof row.stop === "string"
+                              ? row.stop
+                              : "";
+                    const eta = etaFromArrivals(row.nextArrivals, typeof row.fetchedAt === "string" ? row.fetchedAt : fetchedAt);
+                    return `${line} ${label} ${eta}`.trim();
+                })
+                .filter(Boolean);
+            return parts.join(" | ");
+        }
+
+        return "";
+    };
+
     app.get("/admin/mqtt/events", async (c) => {
         const auth = ensureAdminAuth("MQTT admin page", c.req.header("authorization"));
         if (!auth.ok) {
@@ -119,16 +210,18 @@ export function registerMqttAdmin(app: Hono) {
         const rows = events
             .slice()
             .reverse()
-            .map(
-                (event) => `
+            .map((event) => {
+                const ledPreview = ledPreviewFromEvent(event.topic, event.payloadPreview);
+                return `
 <tr>
   <td>${escapeHtml(event.ts)}</td>
   <td>${escapeHtml(event.direction)}</td>
   <td>${escapeHtml(event.topic ?? "")}</td>
+  <td>${escapeHtml(ledPreview)}</td>
   <td>${escapeHtml(event.detail ?? "")}</td>
   <td><pre>${escapeHtml(event.payloadPreview ?? "")}</pre></td>
-</tr>`,
-            )
+</tr>`;
+            })
             .join("");
 
         const html = `
@@ -151,7 +244,7 @@ export function registerMqttAdmin(app: Hono) {
     table { border-collapse: collapse; width: 100%; }
     th, td { border: 1px solid #dde3ea; text-align: left; padding: 6px; font-size: 12px; vertical-align: top; }
     th { background: #f7f9fb; position: sticky; top: 0; }
-    pre { margin: 0; white-space: pre-wrap; word-break: break-word; max-width: 560px; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-word; max-width: 520px; }
   </style>
 </head>
 <body>
@@ -185,12 +278,13 @@ export function registerMqttAdmin(app: Hono) {
             <th>Timestamp</th>
             <th>Direction</th>
             <th>Topic</th>
+            <th>LED</th>
             <th>Detail</th>
             <th>Payload Preview</th>
           </tr>
         </thead>
         <tbody>
-          ${rows || '<tr><td colspan="5">No events yet.</td></tr>'}
+          ${rows || '<tr><td colspan="6">No events yet.</td></tr>'}
         </tbody>
       </table>
     </div>

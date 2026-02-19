@@ -37,7 +37,7 @@ const pushDebugEvent = (event: Omit<MqttDebugEvent, "id" | "ts">) => {
 
 const getDebugTopics = () => {
     const raw = process.env.MQTT_DEBUG_TOPICS?.trim();
-    if (!raw) return ["/device/+/commands", "devices/+/status"];
+    if (!raw) return ["/device/+/commands", "devices/+/status", "devices/+/display"];
     return raw
         .split(",")
         .map((topic) => topic.trim())
