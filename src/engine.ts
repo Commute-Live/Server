@@ -76,6 +76,14 @@ const extractNextArrivals = (payload: unknown) => {
     });
 };
 
+const stripArrivalTimeForDevice = (
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+) =>
+    arrivals.map((arrival) => ({
+        delaySeconds: arrival.delaySeconds,
+        destination: arrival.destination,
+    }));
+
 const parseIsoMs = (value?: string) => {
     if (!value) return undefined;
     const ts = Date.parse(value);
@@ -113,8 +121,7 @@ type DeviceLinePayload = {
     stopId?: string;
     direction?: string;
     directionLabel?: string;
-    fetchedAt?: string;
-    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>;
+    nextArrivals: Array<{ delaySeconds?: number; destination?: string }>;
     destination?: string;
     eta?: string;
 };
@@ -167,8 +174,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
                 : undefined,
-        fetchedAt,
-        nextArrivals,
+        nextArrivals: stripArrivalTimeForDevice(nextArrivals),
         eta,
     };
 };
@@ -194,7 +200,6 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
         direction: primary?.direction,
         directionLabel: primary?.directionLabel,
         destination: primary?.destination,
-        fetchedAt: new Date().toISOString(),
         lines,
     };
 };
