@@ -4,9 +4,8 @@ set -e
 cd /opt/commute-live
 git pull origin main
 
-export PATH="/root/.bun/bin:$PATH"
+# rebuild and restart all services
+docker compose up -d --build --force-recreate
 
-bun install
-
-# restart API
-systemctl restart commute-live
+# show service state after rollout
+docker compose ps
