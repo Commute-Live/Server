@@ -12,6 +12,7 @@ import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 const DEFAULT_BRIGHTNESS = 60;
 const DEFAULT_DISPLAY_TYPE = 1;
 const DEFAULT_SCROLLING = false;
+const DEFAULT_ARRIVALS_TO_DISPLAY = 1;
 const SUPPORTED_PROVIDERS = new Set([
     "mta-subway",
     "mta-bus",
@@ -49,6 +50,13 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
     });
 };
 
+const normalizeArrivalsToDisplay = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return DEFAULT_ARRIVALS_TO_DISPLAY;
+    if (value < 1) return 1;
+    if (value > 3) return 3;
+    return Math.trunc(value);
+};
+
 const normalizeConfig = (
     existing: DeviceConfig | null | undefined,
     updates: Partial<DeviceConfig> = {},
@@ -84,6 +92,12 @@ const normalizeConfig = (
             : typeof current.scrolling === "boolean"
               ? current.scrolling
               : DEFAULT_SCROLLING;
+    const arrivalsToDisplay =
+        updates.arrivalsToDisplay !== undefined
+            ? normalizeArrivalsToDisplay(updates.arrivalsToDisplay)
+            : current.arrivalsToDisplay !== undefined
+              ? normalizeArrivalsToDisplay(current.arrivalsToDisplay)
+              : DEFAULT_ARRIVALS_TO_DISPLAY;
 
     return {
         ...current,
@@ -92,6 +106,7 @@ const normalizeConfig = (
         lines,
         displayType,
         scrolling,
+        arrivalsToDisplay,
     };
 };
 
@@ -155,6 +170,13 @@ export function registerConfig(app: Hono, deps: dependency) {
                         .scrolling;
                     if (typeof maybeScrolling === "boolean") {
                         updates.scrolling = maybeScrolling;
+                    }
+                }
+
+                if ("arrivalsToDisplay" in (body as Record<string, unknown>)) {
+                    const maybeArrivalsToDisplay = (body as Record<string, unknown>).arrivalsToDisplay;
+                    if (typeof maybeArrivalsToDisplay === "number" && !Number.isNaN(maybeArrivalsToDisplay)) {
+                        updates.arrivalsToDisplay = normalizeArrivalsToDisplay(maybeArrivalsToDisplay);
                     }
                 }
 

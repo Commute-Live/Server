@@ -10,6 +10,13 @@ const SUPPORTED_PROVIDERS = new Set([
     "septa-bus",
 ]);
 
+const clampArrivalsToDisplay = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return 1;
+    if (value < 1) return 1;
+    if (value > 3) return 3;
+    return Math.trunc(value);
+};
+
 const isLineConfig = (value: unknown): value is LineConfig => {
     if (!value || typeof value !== "object") return false;
     const v = value as LineConfig;
@@ -30,6 +37,7 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
         const lines = Array.isArray(cfg.lines) ? cfg.lines.filter(isLineConfig) : [];
         const deviceDisplayType = typeof cfg.displayType === "number" ? cfg.displayType : 1;
         const deviceScrolling = typeof cfg.scrolling === "boolean" ? cfg.scrolling : false;
+        const deviceArrivalsToDisplay = clampArrivalsToDisplay(cfg.arrivalsToDisplay);
 
         for (const line of lines) {
             // Require minimal fields; skip malformed entries
@@ -51,6 +59,7 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
                 },
                 displayType,
                 scrolling,
+                arrivalsToDisplay: deviceArrivalsToDisplay,
             });
         }
     }

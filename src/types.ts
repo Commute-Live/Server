@@ -5,6 +5,7 @@ export type Subscription = {
     config: Record<string, string>;
     displayType?: number;
     scrolling?: boolean;
+    arrivalsToDisplay?: number;
 };
 
 export type LineConfig = {
@@ -20,6 +21,7 @@ export type DeviceConfig = {
     brightness?: number;
     displayType?: number;
     scrolling?: boolean;
+    arrivalsToDisplay?: number;
     lines?: LineConfig[];
 };
 

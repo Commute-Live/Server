@@ -16,6 +16,7 @@ type EngineOptions = {
 type DeviceOptions = {
     displayType: number;
     scrolling: boolean;
+    arrivalsToDisplay: number;
 };
 
 const defaultPublish = (topic: string, payload: unknown) => {
@@ -23,6 +24,12 @@ const defaultPublish = (topic: string, payload: unknown) => {
 };
 
 const MAX_ARRIVALS_PER_LINE = 3;
+const clampArrivalsToDisplay = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return 1;
+    if (value < 1) return 1;
+    if (value > 3) return 3;
+    return Math.trunc(value);
+};
 
 // Creates Key --> DeviceIds && DeviceIds --> Keys
 const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPlugin>) => {
@@ -55,6 +62,7 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
             deviceOptions.set(sub.deviceId, {
                 displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
                 scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
+                arrivalsToDisplay: clampArrivalsToDisplay(sub.arrivalsToDisplay),
             });
         }
     }
@@ -230,6 +238,7 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
+        arrivalsToDisplay: clampArrivalsToDisplay(deviceOptions?.arrivalsToDisplay),
         provider: primary?.provider,
         stop: primary?.stop,
         stopId: primary?.stopId,
