@@ -18,26 +18,49 @@ const DEBUG_EVENTS_MAX = 500;
 let debugEventId = 0;
 const debugEvents: MqttDebugEvent[] = [];
 
+const MQTT_DEBUG_PAYLOAD_MAX_CHARS = (() => {
+    const raw = Number(process.env.MQTT_DEBUG_PAYLOAD_MAX_CHARS ?? 4000);
+    if (!Number.isFinite(raw)) return 4000;
+    return Math.max(128, Math.min(20000, Math.floor(raw)));
+})();
+
 const toPayloadPreview = (value: string | Buffer | Uint8Array) => {
-    const text = typeof value === "string" ? value : Buffer.from(value).toString("utf8");
-    return text;
+    const text =
+        typeof value === "string" ? value : Buffer.from(value).toString("utf8");
+    if (text.length <= MQTT_DEBUG_PAYLOAD_MAX_CHARS) return text;
+    return `${text.slice(0, MQTT_DEBUG_PAYLOAD_MAX_CHARS)}...[truncated ${text.length - MQTT_DEBUG_PAYLOAD_MAX_CHARS} chars]`;
 };
 
 const pushDebugEvent = (event: Omit<MqttDebugEvent, "id" | "ts">) => {
     debugEventId += 1;
-    debugEvents.push({
+    const nextEvent: MqttDebugEvent = {
         id: debugEventId,
         ts: new Date().toISOString(),
         ...event,
-    });
+    };
+    debugEvents.push(nextEvent);
     if (debugEvents.length > DEBUG_EVENTS_MAX) {
         debugEvents.splice(0, debugEvents.length - DEBUG_EVENTS_MAX);
     }
+
+    const level = nextEvent.direction === "error" ? "error" : "info";
+    console.log(
+        JSON.stringify({
+            level,
+            message: "mqtt_debug_event",
+            source: "mqtt",
+            service: process.env.DD_SERVICE ?? "commutelive-api",
+            env: process.env.DD_ENV ?? process.env.NODE_ENV ?? "unknown",
+            version: process.env.DD_VERSION ?? "unknown",
+            mqtt: nextEvent,
+        }),
+    );
 };
 
 const getDebugTopics = () => {
     const raw = process.env.MQTT_DEBUG_TOPICS?.trim();
-    if (!raw) return ["/device/+/commands", "devices/+/status", "devices/+/display"];
+    if (!raw)
+        return ["/device/+/commands", "devices/+/status", "devices/+/display"];
     return raw
         .split(",")
         .map((topic) => topic.trim())
@@ -47,7 +70,9 @@ const getDebugTopics = () => {
 function getConfig() {
     const host = process.env.MQTT_HOST;
     const protocol = (process.env.MQTT_PROTOCOL ?? "mqtt") as "mqtt" | "mqtts";
-    const port = Number(process.env.MQTT_PORT ?? (protocol === "mqtts" ? 8883 : 1883));
+    const port = Number(
+        process.env.MQTT_PORT ?? (protocol === "mqtts" ? 8883 : 1883),
+    );
     const username = process.env.MQTT_USERNAME;
     const password = process.env.MQTT_PASSWORD;
 
@@ -61,7 +86,9 @@ function getClient() {
     const config = getConfig();
     if (!config) {
         if (!isConfigured) {
-            console.warn("MQTT not configured. Set MQTT_HOST to enable publishing.");
+            console.warn(
+                "MQTT not configured. Set MQTT_HOST to enable publishing.",
+            );
             isConfigured = true;
         }
         return null;
@@ -78,7 +105,9 @@ function getClient() {
     });
 
     client.on("connect", () => {
-        console.log(`MQTT connected to ${config.protocol}://${config.host}:${config.port}`);
+        console.log(
+            `MQTT connected to ${config.protocol}://${config.host}:${config.port}`,
+        );
         pushDebugEvent({
             direction: "state",
             detail: `connected to ${config.protocol}://${config.host}:${config.port}`,
