@@ -1,3 +1,4 @@
+import "./tracer";
 import "dotenv/config";
 import { Hono } from "hono/quick";
 import { cors } from "hono/cors";
@@ -27,8 +28,7 @@ const aggregator = startAggregatorEngine({
 const app = new Hono();
 
 const allowedOrigins = (
-    process.env.CORS_ORIGINS ??
-    "http://localhost:8081,http://127.0.0.1:8081"
+    process.env.CORS_ORIGINS ?? "http://localhost:8081,http://127.0.0.1:8081"
 )
     .split(",")
     .map((origin) => origin.trim())
