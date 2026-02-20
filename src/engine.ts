@@ -22,6 +22,8 @@ const defaultPublish = (topic: string, payload: unknown) => {
     console.log("[PUBLISH]", topic, JSON.stringify(payload));
 };
 
+const MAX_ARRIVALS_PER_LINE = 3;
+
 // Creates Key --> DeviceIds && DeviceIds --> Keys
 const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPlugin>) => {
     const fanout: FanoutMap = new Map();
@@ -66,7 +68,7 @@ const extractNextArrivals = (payload: unknown) => {
     const arrivalsRaw = body.arrivals;
     if (!Array.isArray(arrivalsRaw)) return [];
 
-    return arrivalsRaw.slice(0, 3).map((item) => {
+    return arrivalsRaw.slice(0, MAX_ARRIVALS_PER_LINE).map((item) => {
         const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
         return {
             arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
@@ -79,10 +81,10 @@ const extractNextArrivals = (payload: unknown) => {
 const stripArrivalTimeForDevice = (
     arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
     fetchedAt?: string,
+    fallbackDestination?: string,
 ) => {
     const baseline = parseIsoMs(fetchedAt) ?? Date.now();
-
-    return arrivals.map((arrival) => {
+    const normalized = arrivals.map((arrival) => {
         let eta = "--";
         const ts = parseIsoMs(arrival.arrivalTime);
         if (ts !== undefined) {
@@ -92,11 +94,21 @@ const stripArrivalTimeForDevice = (
         }
 
         return {
-            delaySeconds: arrival.delaySeconds,
-            destination: arrival.destination,
+            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : 0,
+            destination: arrival.destination ?? fallbackDestination,
             eta,
         };
     });
+
+    while (normalized.length < MAX_ARRIVALS_PER_LINE) {
+        normalized.push({
+            delaySeconds: 0,
+            destination: fallbackDestination,
+            eta: "--",
+        });
+    }
+
+    return normalized.slice(0, MAX_ARRIVALS_PER_LINE);
 };
 
 const parseIsoMs = (value?: string) => {
@@ -189,7 +201,13 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
                 : undefined,
-        nextArrivals: stripArrivalTimeForDevice(nextArrivals, fetchedAt),
+        nextArrivals: stripArrivalTimeForDevice(
+            nextArrivals,
+            fetchedAt,
+            typeof body.destination === "string" && body.destination.length > 0
+                ? body.destination
+                : undefined,
+        ),
         eta,
     };
 };
