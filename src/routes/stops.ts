@@ -15,6 +15,18 @@ import {
 } from "../providers/philadelphia/stops_lookup.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
+    type MbtaStop = {
+        id: string;
+        name: string;
+        municipality: string;
+        latitude: number | null;
+        longitude: number | null;
+    };
+
+    type MbtaStopsResult =
+        | { ok: true; stops: MbtaStop[] }
+        | { ok: false; error: string; status: 500 | 502 };
+
     const parseLimit = (value: unknown, def = 30, max = 1000) => {
         const raw = Number(value ?? def);
         return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
@@ -131,10 +143,10 @@ export function registerStops(app: Hono, _deps: dependency) {
         return c.json({ count: routes.length, routes: routes.slice(0, limit) });
     });
 
-    const fetchMbtaStops = async (route: string, limit: number, routeType?: number) => {
+    const fetchMbtaStops = async (route: string, limit: number, routeType?: number): Promise<MbtaStopsResult> => {
         const apiKey = process.env.MBTA_API_KEY;
         if (!apiKey) {
-            return { error: "MBTA_API_KEY not configured", status: 500 };
+            return { ok: false, error: "MBTA_API_KEY not configured", status: 500 };
         }
         const search = new URLSearchParams({
             "filter[route]": route,
@@ -147,7 +159,7 @@ export function registerStops(app: Hono, _deps: dependency) {
         const url = `https://api-v3.mbta.com/stops?${search.toString()}`;
         const res = await fetch(url, { headers: { "x-api-key": apiKey } });
         if (!res.ok) {
-            return { error: `MBTA error ${res.status} ${res.statusText}`, status: 502 };
+            return { ok: false, error: `MBTA error ${res.status} ${res.statusText}`, status: 502 };
         }
         const json = (await res.json()) as {
             data?: Array<{
@@ -163,7 +175,7 @@ export function registerStops(app: Hono, _deps: dependency) {
                 latitude: item.attributes?.latitude ?? null,
                 longitude: item.attributes?.longitude ?? null,
             })) ?? [];
-        return { stops };
+        return { ok: true, stops };
     };
 
     // MBTA subway/light rail stops (route required)
@@ -172,7 +184,7 @@ export function registerStops(app: Hono, _deps: dependency) {
         const limit = parseLimit(c.req.query("limit"), 30, 200);
         if (!route) return c.json({ error: "route is required (e.g., Red, Orange, Green-B)" }, 400);
         const result = await fetchMbtaStops(route, limit /* route_type omitted to allow B/C/D/E */);
-        if ("error" in result) return c.json({ error: result.error }, result.status);
+        if (!result.ok) return c.json({ error: result.error }, result.status);
         return c.json({ count: result.stops.length, stops: result.stops });
     });
 
@@ -182,7 +194,7 @@ export function registerStops(app: Hono, _deps: dependency) {
         const limit = parseLimit(c.req.query("limit"), 30, 200);
         if (!route) return c.json({ error: "route is required (e.g., 1, 66, SL1)" }, 400);
         const result = await fetchMbtaStops(route, limit, 3 /* bus */);
-        if ("error" in result) return c.json({ error: result.error }, result.status);
+        if (!result.ok) return c.json({ error: result.error }, result.status);
         return c.json({ count: result.stops.length, stops: result.stops });
     });
 

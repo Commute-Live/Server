@@ -18,7 +18,10 @@ docker compose up --build -d
 This runs:
 - Bun API (`commutelive-api`)
 - Postgres (`commutelive-postgres`)
+- Redis (`redis`)
 - Mosquitto (`commutelive-mosquitto`)
+
+Redis uses a named Docker volume (`redis_data`) so cached data persists across container recreates and deploys.
 
 The API container runs DB migrations on startup (`bun run db:migrate`) before starting the server.
 

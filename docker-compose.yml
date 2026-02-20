@@ -17,6 +17,20 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "${REDIS_PORT_BIND:-127.0.0.1:6379}:6379"
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
   mosquitto:
     image: eclipse-mosquitto:2
     restart: unless-stopped
@@ -39,7 +53,11 @@ services:
       chmod 0644 /mosquitto/data/passwd &&
       exec mosquitto -c /mosquitto/config/mosquitto.conf"
     healthcheck:
-      test: ["CMD-SHELL", "mosquitto_pub -h 127.0.0.1 -p 1883 -u \"$${MQTT_USERNAME}\" -P \"$${MQTT_PASSWORD}\" -t _health -m ok >/dev/null 2>&1 || exit 1"]
+      test:
+        [
+          "CMD-SHELL",
+          'mosquitto_pub -h 127.0.0.1 -p 1883 -u "$${MQTT_USERNAME}" -P "$${MQTT_PASSWORD}" -t _health -m ok >/dev/null 2>&1 || exit 1',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -61,8 +79,11 @@ services:
       MQTT_PROTOCOL: mqtt
       MQTT_USERNAME: ${MQTT_USERNAME:-commutelive}
       MQTT_PASSWORD: ${MQTT_PASSWORD:-commutelive}
+      REDIS_URL: redis://redis:6379
     depends_on:
       postgres:
+        condition: service_healthy
+      redis:
         condition: service_healthy
       mosquitto:
         condition: service_healthy
@@ -70,12 +91,17 @@ services:
       - "${API_PORT_BIND:-8080}:8080"
     command: sh -c "bun run db:migrate && bun run src/index.ts"
     healthcheck:
-      test: ["CMD-SHELL", "bun -e \"fetch('http://127.0.0.1:8080/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))\""]
+      test:
+        [
+          "CMD-SHELL",
+          'bun -e "fetch(''http://127.0.0.1:8080/health'').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"',
+        ]
       interval: 10s
       timeout: 5s
       retries: 10
 
 volumes:
   pgdata:
+  redis_data:
   mosquitto_data:
   mosquitto_log:

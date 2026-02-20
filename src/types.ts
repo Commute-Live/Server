@@ -55,7 +55,7 @@ export interface AggregatorEngine {
     refreshDevice(deviceId: string): Promise<void>;
     reloadSubscriptions(): Promise<void>;
     getFanout(): FanoutMap;
-    getCache(): Map<string, CacheEntry>;
+    getCache(): Promise<Map<string, CacheEntry>>;
     stop(): void;
     ready: Promise<void>;
 }

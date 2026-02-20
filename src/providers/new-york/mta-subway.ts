@@ -68,7 +68,7 @@ const pickFeedUrl = (line?: string): string | null => {
     return FEED_MAP[key] ?? null;
 };
 
-const normalizeLine = (line?: string) => (line ? line.trim().toUpperCase() : "");
+const normalizeLine = (line?: string | null) => (line ? line.trim().toUpperCase() : "");
 
 const normalizeDirection = (direction?: string) => {
     if (!direction) return "";

@@ -86,7 +86,12 @@ function loadStopMap(): Map<string, string> {
         return map;
     }
 
-    const header = parseCsvLine(lines[0]);
+    const headerLine = lines[0];
+    if (!headerLine) {
+        stopNameById = map;
+        return map;
+    }
+    const header = parseCsvLine(headerLine);
     const stopIdIdx = header.indexOf("stop_id");
     const stopNameIdx = header.indexOf("stop_name");
     if (stopIdIdx < 0 || stopNameIdx < 0) {
@@ -95,7 +100,9 @@ function loadStopMap(): Map<string, string> {
     }
 
     for (let i = 1; i < lines.length; i++) {
-        const cols = parseCsvLine(lines[i]);
+        const rowLine = lines[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const stopId = cols[stopIdIdx]?.trim();
         const stopName = cols[stopNameIdx]?.trim();
         if (!stopId || !stopName) continue;
@@ -162,7 +169,12 @@ function loadRouteLabels(): Map<string, string> {
         return map;
     }
 
-    const header = parseCsvLine(lines[0]);
+    const headerLine = lines[0];
+    if (!headerLine) {
+        routeLabelByRouteId = map;
+        return map;
+    }
+    const header = parseCsvLine(headerLine);
     const routeIdIdx = header.indexOf("route_id");
     const routeShortNameIdx = header.indexOf("route_short_name");
     if (routeIdIdx < 0) {
@@ -171,7 +183,9 @@ function loadRouteLabels(): Map<string, string> {
     }
 
     for (let i = 1; i < lines.length; i++) {
-        const cols = parseCsvLine(lines[i]);
+        const rowLine = lines[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const routeId = cols[routeIdIdx]?.trim();
         if (!routeId) continue;
         const routeShortName = routeShortNameIdx >= 0 ? cols[routeShortNameIdx]?.trim() : "";

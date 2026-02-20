@@ -74,6 +74,7 @@ const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
     const match = trimmed.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
     if (match) {
         const [, hhRaw, mmRaw, ampmRaw] = match;
+        if (!hhRaw || !mmRaw || !ampmRaw) return null;
         let hh = Number(hhRaw);
         const mm = Number(mmRaw);
         const ampm = ampmRaw.toUpperCase();

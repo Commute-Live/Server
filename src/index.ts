@@ -6,6 +6,9 @@ import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
 import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
 import { publish as mqttPublish } from "./mqtt/mqtt.ts";
+import { initCache } from "./cache.ts";
+
+await initCache();
 
 const { sql, db } = startDb();
 

@@ -17,6 +17,7 @@ type CtaEta = {
     stpDe?: string;
     rt?: string;
     trDr?: string;
+    destNm?: string;
     prdt?: string;
     arrT?: string;
     isSch?: string;

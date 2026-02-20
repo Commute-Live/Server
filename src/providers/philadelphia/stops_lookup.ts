@@ -97,6 +97,16 @@ function buildCache(mode: Mode): SeptaCache {
     const routeStopsHeader = routeStopsRows[0];
     const routesHeader = routesRows[0];
     const stopsHeader = stopsRows[0];
+    if (!routeStopsHeader || !routesHeader || !stopsHeader) {
+        return {
+            routes: [],
+            routeLabelById: new Map(),
+            routeAliasesById: new Map(),
+            routeToStops: new Map(),
+            stopToRoutes: new Map(),
+            stopNameById: new Map(),
+        };
+    }
 
     const routeIdIdx = routeStopsHeader.indexOf("route_id");
     const stopIdIdx = routeStopsHeader.indexOf("stop_id");
@@ -110,6 +120,7 @@ function buildCache(mode: Mode): SeptaCache {
     const routeToStopSet = new Map<string, Set<string>>();
     for (let i = 1; i < routeStopsRows.length; i++) {
         const row = routeStopsRows[i];
+        if (!row) continue;
         const routeId = row[routeIdIdx]?.trim() ?? "";
         const stopId = row[stopIdIdx]?.trim() ?? "";
         if (!routeId || !stopId) continue;
@@ -131,6 +142,7 @@ function buildCache(mode: Mode): SeptaCache {
     const stopNameById = new Map<string, string>();
     for (let i = 1; i < stopsRows.length; i++) {
         const row = stopsRows[i];
+        if (!row) continue;
         const stopId = row[stopsStopIdIdx]?.trim() ?? "";
         const stopName = row[stopNameIdx]?.trim() ?? "";
         if (!stopId) continue;
@@ -147,6 +159,7 @@ function buildCache(mode: Mode): SeptaCache {
             .replace(/\s+/g, " ");
     for (let i = 1; i < routesRows.length; i++) {
         const row = routesRows[i];
+        if (!row) continue;
         const routeId = row[routesRouteIdIdx]?.trim() ?? "";
         if (!routeId) continue;
         const shortName = row[shortNameIdx]?.trim() ?? "";
