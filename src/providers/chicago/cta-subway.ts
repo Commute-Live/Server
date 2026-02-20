@@ -64,6 +64,13 @@ const normalizeDirection = (raw?: string) => {
     return undefined;
 };
 
+const normalizeDirectionForDevice = (raw?: string) => {
+    const d = normalizeDirection(raw);
+    if (d === "1") return "N";
+    if (d === "5") return "S";
+    return raw;
+};
+
 const STOP_CACHE_TTL_MS = 20_000;
 const stopCache = new Map<string, { expiresAt: number; etas: CtaEta[] }>();
 const inflightStopFetch = new Map<string, Promise<{ etas: CtaEta[] }>>();
@@ -211,15 +218,26 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
                 arrivalTime: arrivalIso,
                 scheduledTime: eta.isSch === "1" ? arrivalIso : null,
                 delaySeconds,
+                destination: eta.destNm ?? undefined,
             };
         })
-        .filter((item): item is { arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null } => !!item)
+        .filter(
+            (
+                item,
+            ): item is {
+                arrivalTime: string;
+                scheduledTime: string | null;
+                delaySeconds: number | null;
+                destination?: string;
+            } => !!item,
+        )
         .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
 
     const primary = filteredEtas[0] ?? bundle.etas[0];
     const resolvedStopName = primary?.staNm ?? CTA_STATION_NAME_BY_ID[stop] ?? stop;
     const resolvedDirectionLabel = primary?.destNm ?? resolvedStopName;
-    const resolvedDirection = params.direction || primary?.trDr || undefined;
+    const resolvedDirection = normalizeDirectionForDevice(params.direction || primary?.trDr || undefined);
+    const resolvedDestination = primary?.destNm ?? undefined;
 
     return {
         payload: {
@@ -230,6 +248,7 @@ const fetchCtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
             stopName: resolvedStopName,
             direction: resolvedDirection,
             directionLabel: resolvedDirectionLabel,
+            destination: resolvedDestination,
             arrivals: etaItems,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
