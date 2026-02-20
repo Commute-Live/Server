@@ -238,7 +238,7 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
-        arrivalsToDisplay: 1,
+        arrivalsToDisplay: clampArrivalsToDisplay(deviceOptions?.arrivalsToDisplay),
         provider: primary?.provider,
         stop: primary?.stop,
         stopId: primary?.stopId,
