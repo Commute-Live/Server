@@ -72,6 +72,7 @@ type ArrivalItem = {
     directionId: number | null | undefined;
     route?: IncludedByType<"route">;
     trip?: IncludedByType<"trip">;
+    destination?: string;
 };
 
 const pickIncluded = <T extends MbtaIncluded["type"]>(
@@ -226,6 +227,11 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
             if (!arrivalIso) return null;
             const trip = p.relationships.trip?.data?.id ? pickIncluded(included, "trip", p.relationships.trip.data.id) : undefined;
             const route = p.relationships.route?.data?.id ? pickIncluded(included, "route", p.relationships.route.data.id) : undefined;
+            const destination = buildDirectionLabel({
+                directionId: p.attributes.direction_id,
+                route,
+                trip,
+            });
             return {
                 arrivalTime: arrivalIso,
                 scheduledTime: null,
@@ -233,6 +239,7 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
                 directionId: p.attributes.direction_id,
                 route,
                 trip,
+                destination,
             };
         })
         .filter((item): item is ArrivalItem => !!item)
@@ -282,6 +289,11 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
                 const route = p.relationships.route?.data?.id
                     ? pickIncluded(stopIncluded, "route", p.relationships.route.data.id)
                     : undefined;
+                const destination = buildDirectionLabel({
+                    directionId: p.attributes.direction_id,
+                    route,
+                    trip,
+                });
                 return {
                     arrivalTime: arrivalIso,
                     scheduledTime: null,
@@ -289,6 +301,7 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
                     directionId: p.attributes.direction_id,
                     route,
                     trip,
+                    destination,
                 };
             })
             .filter((item): item is ArrivalItem => !!item)
@@ -319,10 +332,12 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
             stopName: stopIncluded?.attributes?.name ?? stopIncluded?.id,
             direction: normalizeDirection(resolvedDirectionId, directionRaw),
             directionLabel: directionLabel ?? undefined,
+            destination: arrivals[0]?.destination ?? directionLabel ?? undefined,
             arrivals: arrivals.map((item) => ({
                 arrivalTime: item.arrivalTime,
                 scheduledTime: item.scheduledTime,
                 delaySeconds: item.delaySeconds,
+                destination: item.destination,
             })),
             fetchedAt: new Date(ctx.now).toISOString(),
         },
