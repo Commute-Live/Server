@@ -12,6 +12,14 @@ import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 const DEFAULT_BRIGHTNESS = 60;
 const DEFAULT_DISPLAY_TYPE = 1;
 const DEFAULT_SCROLLING = false;
+const SUPPORTED_PROVIDERS = new Set([
+    "mta-subway",
+    "mta-bus",
+    "mbta",
+    "cta-subway",
+    "septa-rail",
+    "septa-bus",
+]);
 
 const validateLines = (lines: unknown): lines is LineConfig[] => {
     if (!Array.isArray(lines)) return false;
@@ -173,11 +181,18 @@ export function registerConfig(app: Hono, deps: dependency) {
                     const line = (row.line ?? "").trim().toUpperCase();
                     const stop = (row.stop ?? "").trim().toUpperCase();
 
-                    if (
-                        (provider === "mta-subway" || provider === "mta") &&
-                        line &&
-                        stop
-                    ) {
+                    if (!SUPPORTED_PROVIDERS.has(provider)) {
+                        return c.json(
+                            {
+                                error: `Unsupported provider '${provider}'. Supported providers: ${Array.from(
+                                    SUPPORTED_PROVIDERS,
+                                ).join(", ")}`,
+                            },
+                            400,
+                        );
+                    }
+
+                    if (provider === "mta-subway" && line && stop) {
                         const stopLines = await listLinesForStop(stop);
                         const normalizedStopLines = stopLines.map((v) =>
                             v.trim().toUpperCase(),

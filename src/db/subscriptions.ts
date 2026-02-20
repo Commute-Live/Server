@@ -1,6 +1,15 @@
 import { devices } from "./schema/schema.ts";
 import type { DeviceConfig, LineConfig, Subscription } from "../types.ts";
 
+const SUPPORTED_PROVIDERS = new Set([
+    "mta-subway",
+    "mta-bus",
+    "mbta",
+    "cta-subway",
+    "septa-rail",
+    "septa-bus",
+]);
+
 const isLineConfig = (value: unknown): value is LineConfig => {
     if (!value || typeof value !== "object") return false;
     const v = value as LineConfig;
@@ -25,13 +34,15 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
         for (const line of lines) {
             // Require minimal fields; skip malformed entries
             if (!line.provider || !line.line) continue;
+            const provider = line.provider.trim().toLowerCase();
+            if (!SUPPORTED_PROVIDERS.has(provider)) continue;
 
             const displayType = typeof line.displayType === "number" ? line.displayType : deviceDisplayType;
             const scrolling = typeof line.scrolling === "boolean" ? line.scrolling : deviceScrolling;
 
             subs.push({
                 deviceId: row.id,
-                provider: line.provider,
+                provider,
                 type: "arrivals",
                 config: {
                     line: line.line,
