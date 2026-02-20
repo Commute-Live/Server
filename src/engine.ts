@@ -208,14 +208,17 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
 
     const primary = lines[0];
+    const linesForDevice = lines.map(({ stop, stopId, direction, ...rest }) => rest);
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
         provider: primary?.provider,
+        stop: primary?.stop,
+        stopId: primary?.stopId,
         direction: primary?.direction,
         directionLabel: primary?.directionLabel,
         destination: primary?.destination,
-        lines,
+        lines: linesForDevice,
     };
 };
 
