@@ -171,7 +171,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         resolveDirectionLabel({
             line: line || undefined,
             direction,
-            stop: stopName ?? stopId,
+            stop: stopName,
         });
 
     const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
