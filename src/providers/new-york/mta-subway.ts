@@ -2,6 +2,8 @@ import type { ProviderPlugin, FetchContext, FetchResult } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
+import { readFileSync } from "node:fs";
+import { resolveDirectionLabel } from "../../transit/direction_label.ts";
 
 const FEED_MAP: Record<string, string> = {
     A: "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
@@ -34,6 +36,72 @@ const FEED_CACHE_TTL_MS = 15_000;
 
 const feedCache = new Map<string, { feed: transit_realtime.FeedMessage; expiresAt: number }>();
 const inflightFeeds = new Map<string, Promise<transit_realtime.FeedMessage>>();
+let tripHeadsignByTripId: Map<string, string> | null = null;
+
+const parseCsvLine = (line: string) => {
+    const out: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                cur += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+        if (ch === "," && !inQuotes) {
+            out.push(cur);
+            cur = "";
+            continue;
+        }
+        cur += ch;
+    }
+    out.push(cur);
+    return out;
+};
+
+const getTripHeadsignMap = () => {
+    if (tripHeadsignByTripId) return tripHeadsignByTripId;
+    const map = new Map<string, string>();
+    const path = "data/mta/trips.txt";
+
+    try {
+        const lines = readFileSync(path, "utf8")
+            .split(/\r?\n/)
+            .filter((line) => line.length > 0);
+        if (lines.length === 0) {
+            tripHeadsignByTripId = map;
+            return map;
+        }
+
+        const header = parseCsvLine(lines[0] ?? "");
+        const tripIdIdx = header.indexOf("trip_id");
+        const headsignIdx = header.indexOf("trip_headsign");
+
+        if (tripIdIdx < 0 || headsignIdx < 0) {
+            tripHeadsignByTripId = map;
+            return map;
+        }
+
+        for (let i = 1; i < lines.length; i++) {
+            const cols = parseCsvLine(lines[i] ?? "");
+            const tripId = (cols[tripIdIdx] ?? "").trim();
+            const headsign = (cols[headsignIdx] ?? "").trim();
+            if (!tripId || !headsign) continue;
+            map.set(tripId, headsign);
+        }
+    } catch {
+        // Keep empty map on file or parse failures.
+    }
+
+    tripHeadsignByTripId = map;
+    return map;
+};
 
 const fetchFeed = async (feedUrl: string, now: number, log?: FetchContext["log"]) => {
     const cached = feedCache.get(feedUrl);
@@ -88,7 +156,10 @@ const normalizeSubwayArrivals = (
         arrivalTime: string;
         scheduledTime: string | null;
         delaySeconds: number | null;
+        destination?: string;
     }> = [];
+
+    const tripHeadsigns = getTripHeadsignMap();
 
     for (const entity of feed.entity) {
         const tripUpdate = entity.tripUpdate;
@@ -96,6 +167,8 @@ const normalizeSubwayArrivals = (
 
         const routeId = normalizeLine(tripUpdate.trip?.routeId);
         if (line && routeId && routeId !== line) continue;
+        const tripId = tripUpdate.trip?.tripId ?? "";
+        const destination = tripId ? tripHeadsigns.get(tripId) : undefined;
 
         for (const stu of tripUpdate.stopTimeUpdate ?? []) {
             const stopId = stu.stopId ?? "unknown";
@@ -114,6 +187,7 @@ const normalizeSubwayArrivals = (
                 arrivalTime: new Date(arrivalEpochMs).toISOString(),
                 scheduledTime: scheduledEpochMs ? new Date(scheduledEpochMs).toISOString() : null,
                 delaySeconds: delay,
+                destination: destination || undefined,
             });
             if (items.length >= 20) break;
         }
@@ -145,12 +219,12 @@ const sampleStops = (feed: transit_realtime.FeedMessage, limit = 12) => {
 };
 
 const pickUpcomingArrivals = (
-    arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }>,
+    arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null; destination?: string }>,
     nowMs: number
 ) => {
     const graceMs = 15_000;
     const seen = new Set<string>();
-    const filtered: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }> = [];
+    const filtered: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null; destination?: string }> = [];
 
     for (const item of arrivals) {
         const ts = Date.parse(item.arrivalTime);
@@ -187,13 +261,24 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
     }
 
     arrivals = pickUpcomingArrivals(arrivals, ctx.now);
+    const normalizedDirection = normalizeDirection(params.direction);
+    const directionLabel =
+        resolveDirectionLabel({
+            line,
+            direction: normalizedDirection,
+            stop: params.stop,
+        }) ||
+        undefined;
+    const destination = arrivals[0]?.destination;
 
     return {
         payload: {
             provider: "mta-subway",
             line,
             stop: params.stop,
-            direction: params.direction,
+            direction: normalizedDirection || params.direction,
+            directionLabel,
+            destination,
             feedUrl,
             entities: feed.entity.length,
             arrivals,

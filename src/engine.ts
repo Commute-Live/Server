@@ -71,6 +71,7 @@ const extractNextArrivals = (payload: unknown) => {
         return {
             arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
             delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
+            destination: typeof row.destination === "string" ? row.destination : undefined,
         };
     });
 };
@@ -83,7 +84,8 @@ type DeviceLinePayload = {
     direction?: string;
     directionLabel?: string;
     fetchedAt?: string;
-    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number }>;
+    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>;
+    destination?: string;
 };
 
 const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
@@ -126,6 +128,10 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         stopId,
         direction,
         directionLabel: directionLabel || undefined,
+        destination:
+            typeof body.destination === "string" && body.destination.length > 0
+                ? body.destination
+                : undefined,
         fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
         nextArrivals: extractNextArrivals(payload),
     };
@@ -154,6 +160,7 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
         stopId: primary?.stopId,
         direction: primary?.direction,
         directionLabel: primary?.directionLabel,
+        destination: primary?.destination,
         fetchedAt: new Date().toISOString(),
         nextArrivals: primary?.nextArrivals ?? [],
         lines,
