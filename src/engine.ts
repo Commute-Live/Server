@@ -76,6 +76,36 @@ const extractNextArrivals = (payload: unknown) => {
     });
 };
 
+const parseIsoMs = (value?: string) => {
+    if (!value) return undefined;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : undefined;
+};
+
+const etaTextFromArrivals = (
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    fetchedAt?: string,
+) => {
+    if (!arrivals.length) return "--";
+
+    const baseline = parseIsoMs(fetchedAt) ?? Date.now();
+    let sawDue = false;
+
+    for (const arrival of arrivals) {
+        const ts = parseIsoMs(arrival.arrivalTime);
+        if (ts === undefined) continue;
+        const diffSec = Math.max(0, Math.floor((ts - baseline) / 1000));
+        const mins = Math.floor((diffSec + 59) / 60);
+        if (mins <= 1) {
+            sawDue = true;
+            continue;
+        }
+        return `${mins}m`;
+    }
+
+    return sawDue ? "DUE" : "--";
+};
+
 type DeviceLinePayload = {
     provider?: string;
     line?: string;
@@ -86,6 +116,7 @@ type DeviceLinePayload = {
     fetchedAt?: string;
     nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>;
     destination?: string;
+    eta?: string;
 };
 
 const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
@@ -121,6 +152,10 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             stop: stopName ?? stopId,
         });
 
+    const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
+    const nextArrivals = extractNextArrivals(payload);
+    const eta = etaTextFromArrivals(nextArrivals, fetchedAt);
+
     return {
         provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
         line: line || undefined,
@@ -132,8 +167,9 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
                 : undefined,
-        fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
-        nextArrivals: extractNextArrivals(payload),
+        fetchedAt,
+        nextArrivals,
+        eta,
     };
 };
 
