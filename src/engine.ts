@@ -78,11 +78,26 @@ const extractNextArrivals = (payload: unknown) => {
 
 const stripArrivalTimeForDevice = (
     arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
-) =>
-    arrivals.map((arrival) => ({
-        delaySeconds: arrival.delaySeconds,
-        destination: arrival.destination,
-    }));
+    fetchedAt?: string,
+) => {
+    const baseline = parseIsoMs(fetchedAt) ?? Date.now();
+
+    return arrivals.map((arrival) => {
+        let eta = "--";
+        const ts = parseIsoMs(arrival.arrivalTime);
+        if (ts !== undefined) {
+            const diffSec = Math.max(0, Math.floor((ts - baseline) / 1000));
+            const mins = Math.floor((diffSec + 59) / 60);
+            eta = mins <= 1 ? "DUE" : `${mins}m`;
+        }
+
+        return {
+            delaySeconds: arrival.delaySeconds,
+            destination: arrival.destination,
+            eta,
+        };
+    });
+};
 
 const parseIsoMs = (value?: string) => {
     if (!value) return undefined;
@@ -121,7 +136,7 @@ type DeviceLinePayload = {
     stopId?: string;
     direction?: string;
     directionLabel?: string;
-    nextArrivals: Array<{ delaySeconds?: number; destination?: string }>;
+    nextArrivals: Array<{ delaySeconds?: number; destination?: string; eta?: string }>;
     destination?: string;
     eta?: string;
 };
@@ -174,7 +189,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
                 : undefined,
-        nextArrivals: stripArrivalTimeForDevice(nextArrivals),
+        nextArrivals: stripArrivalTimeForDevice(nextArrivals, fetchedAt),
         eta,
     };
 };
