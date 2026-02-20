@@ -1,0 +1,61 @@
+flowchart LR
+    subgraph Clients
+        WebApp["Web or Mobile App"]
+        Device["CommuteLive Device"]
+        Admin["Admin Browser"]
+    end
+
+    subgraph Compose["Docker Compose Stack"]
+        subgraph API["commutelive-api (Bun + Hono)"]
+            Routes["HTTP Routes<br/>auth, device, config, stops, refresh"]
+            Engine["Aggregator Engine<br/>refresh loop: 1s<br/>push loop: 30s"]
+            Cache["Redis-backed cache"]
+            GTFS["Local GTFS files<br/>./data/*"]
+        end
+
+        Postgres["commutelive-postgres<br/>PostgreSQL 16"]
+        Redis["redis<br/>Redis 7"]
+        Mosquitto["commutelive-mosquitto<br/>Eclipse Mosquitto 2"]
+
+        PgVol["pgdata volume"]
+        RedisVol["redis_data volume"]
+        MqttVol["mosquitto_data and mosquitto_log volumes"]
+    end
+
+    subgraph External["Transit Provider APIs"]
+        MtaSubway["MTA Subway GTFS RT feeds"]
+        MtaBus["MTA BusTime SIRI"]
+        Cta["CTA Train Tracker API"]
+        Mbta["MBTA v3 API"]
+        SeptaRail["SEPTA Arrivals API"]
+        SeptaBus["SEPTA GTFS RT Trip Updates"]
+    end
+
+    WebApp -- "HTTP 8080<br/>Auth, user config, stop discovery" --> Routes
+    Device -- "HTTP 8080<br/>Device heartbeat, config fetch" --> Routes
+    Admin -- "HTTP Basic Auth<br/>admin db page" --> Routes
+
+    Routes -- "Drizzle ORM / SQL" --> Postgres
+    Routes -- "refreshDevice and refreshKey" --> Engine
+    Routes -- "Stop and route lookup helpers" --> GTFS
+    Routes -- "Stops API outbound calls" --> MtaBus
+    Routes -- "Stops API outbound calls" --> Mbta
+
+    Engine -- "Load subscriptions from devices.config" --> Postgres
+    Engine --> Cache
+    Cache --> Redis
+    Engine -- "Stop name + direction metadata" --> GTFS
+    Engine -- "Publish device commands over MQTT" --> Mosquitto
+
+    Device -- "MQTT subscribe 1883<br/>authenticated" --> Mosquitto
+
+    Engine -- "Fetch arrivals (HTTP)" --> MtaSubway
+    Engine -- "Fetch arrivals (HTTP)" --> MtaBus
+    Engine -- "Fetch arrivals (HTTP)" --> Cta
+    Engine -- "Fetch arrivals (HTTP)" --> Mbta
+    Engine -- "Fetch arrivals (HTTP)" --> SeptaRail
+    Engine -- "Fetch arrivals (HTTP)" --> SeptaBus
+
+    Postgres -. "persistent storage" .-> PgVol
+    Redis -. "persistent storage" .-> RedisVol
+    Mosquitto -. "persistent storage" .-> MqttVol

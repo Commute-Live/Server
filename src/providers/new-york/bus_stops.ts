@@ -1,7 +1,7 @@
 export type NycBusStop = {
     stopId: string;
     stop: string;
-    direction: "";
+    direction: string;
 };
 
 export type NycBusRoute = {

@@ -131,11 +131,11 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
     };
 };
 
-const buildDeviceCommandPayload = (keys: Set<string>, deviceOptions?: DeviceOptions) => {
+const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: DeviceOptions) => {
     const lines: DeviceLinePayload[] = [];
 
-    for (const key of keys) {
-        const entry = getCacheEntry(key);
+    for (const key of keys.values()) {
+        const entry = await getCacheEntry(key);
         if (!entry) continue;
         const linePayload = buildDeviceLinePayload(key, entry.payload);
         if (!linePayload.line) continue;
@@ -173,14 +173,16 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     let deviceOptions = new Map<string, DeviceOptions>();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
+    let refreshLoopRunning = false;
+    let pushLoopRunning = false;
 
-    const publishDeviceCommand = (deviceId: string) => {
+    const publishDeviceCommand = async (deviceId: string) => {
         const keys = deviceToKeys.get(deviceId);
         if (!keys?.size) {
             return;
         }
 
-        const command = buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
+        const command = await buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
         publish(`/device/${deviceId}/commands`, command);
     };
 
@@ -202,11 +204,11 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     key,
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
-                setCacheEntry(key, result.payload, result.ttlSeconds, now);
+                await setCacheEntry(key, result.payload, result.ttlSeconds, now);
                 const deviceIds = fanout.get(key);
                 if (deviceIds?.size) {
                     for (const deviceId of deviceIds) {
-                        publishDeviceCommand(deviceId);
+                        await publishDeviceCommand(deviceId);
                     }
                 }
             } catch (err) {
@@ -220,20 +222,32 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         return work;
     };
 
-    const scheduleFetches = () => {
+    const scheduleFetches = async () => {
+        if (refreshLoopRunning) return;
+        refreshLoopRunning = true;
         const now = Date.now();
-        for (const key of fanout.keys()) {
-            const entry = getCacheEntry(key);
-            const expired = !entry || entry.expiresAt <= now;
-            if (expired) {
-                void fetchKey(key);
+        try {
+            for (const key of fanout.keys()) {
+                const entry = await getCacheEntry(key);
+                const expired = !entry || entry.expiresAt <= now;
+                if (expired) {
+                    void fetchKey(key);
+                }
             }
+        } finally {
+            refreshLoopRunning = false;
         }
     };
 
-    const pushCachedPayloads = () => {
-        for (const deviceId of deviceToKeys.keys()) {
-            publishDeviceCommand(deviceId);
+    const pushCachedPayloads = async () => {
+        if (pushLoopRunning) return;
+        pushLoopRunning = true;
+        try {
+            for (const deviceId of deviceToKeys.keys()) {
+                await publishDeviceCommand(deviceId);
+            }
+        } finally {
+            pushLoopRunning = false;
         }
     };
 
@@ -243,17 +257,21 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
-        scheduleFetches();
+        await scheduleFetches();
     };
 
     const ready = rebuild();
 
-    refreshTimer = setInterval(scheduleFetches, refreshIntervalMs);
-    pushTimer = setInterval(pushCachedPayloads, pushIntervalMs);
+    refreshTimer = setInterval(() => {
+        void scheduleFetches();
+    }, refreshIntervalMs);
+    pushTimer = setInterval(() => {
+        void pushCachedPayloads();
+    }, pushIntervalMs);
 
     const refreshKey = async (key: string) => {
         const now = Date.now();
-        markExpired(key, now);
+        await markExpired(key, now);
         await ready;
         if (fanout.has(key)) {
             await fetchKey(key);
@@ -267,7 +285,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         const now = Date.now();
         const promises: Promise<void>[] = [];
         for (const key of keys) {
-            markExpired(key, now);
+            await markExpired(key, now);
             promises.push(fetchKey(key));
         }
         await Promise.all(promises);

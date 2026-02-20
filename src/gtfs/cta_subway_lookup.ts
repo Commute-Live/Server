@@ -99,7 +99,12 @@ function getParentStationByStopId(): Map<string, string> {
         return map;
     }
 
-    const header = parseCsvLine(rows[0]);
+    const headerLine = rows[0];
+    if (!headerLine) {
+        parentStationByStopIdCache = map;
+        return map;
+    }
+    const header = parseCsvLine(headerLine);
     const stopIdIdx = header.indexOf("stop_id");
     const parentStationIdx = header.indexOf("parent_station");
     if (stopIdIdx < 0 || parentStationIdx < 0) {
@@ -108,7 +113,9 @@ function getParentStationByStopId(): Map<string, string> {
     }
 
     for (let i = 1; i < rows.length; i++) {
-        const cols = parseCsvLine(rows[i]);
+        const rowLine = rows[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const stopId = cols[stopIdIdx]?.trim() ?? "";
         const parentStation = cols[parentStationIdx]?.trim() ?? "";
         if (!stopId) continue;
@@ -146,7 +153,12 @@ function getTripToLineMap(): Map<string, string> {
         return map;
     }
 
-    const header = parseCsvLine(rows[0]);
+    const headerLine = rows[0];
+    if (!headerLine) {
+        tripToLineCache = map;
+        return map;
+    }
+    const header = parseCsvLine(headerLine);
     const routeIdIdx = header.indexOf("route_id");
     const tripIdIdx = header.indexOf("trip_id");
     if (routeIdIdx < 0 || tripIdIdx < 0) {
@@ -155,7 +167,9 @@ function getTripToLineMap(): Map<string, string> {
     }
 
     for (let i = 1; i < rows.length; i++) {
-        const cols = parseCsvLine(rows[i]);
+        const rowLine = rows[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const routeId = cols[routeIdIdx]?.trim() ?? "";
         const tripId = cols[tripIdIdx]?.trim() ?? "";
         if (!tripId) continue;
@@ -260,7 +274,12 @@ export function listCtaSubwayStops(): StopOption[] {
         return cachedStops;
     }
 
-    const header = parseCsvLine(rows[0]);
+    const headerLine = rows[0];
+    if (!headerLine) {
+        cachedStops = [];
+        return cachedStops;
+    }
+    const header = parseCsvLine(headerLine);
     const stopIdIdx = header.indexOf("stop_id");
     const stopNameIdx = header.indexOf("stop_name");
     const locationTypeIdx = header.indexOf("location_type");
@@ -271,7 +290,9 @@ export function listCtaSubwayStops(): StopOption[] {
 
     const stops: StopOption[] = [];
     for (let i = 1; i < rows.length; i++) {
-        const cols = parseCsvLine(rows[i]);
+        const rowLine = rows[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const stopId = cols[stopIdIdx]?.trim() ?? "";
         const stop = cols[stopNameIdx]?.trim() ?? "";
         const locationType = locationTypeIdx >= 0 ? cols[locationTypeIdx]?.trim() ?? "" : "";
@@ -306,7 +327,12 @@ export function listCtaSubwayLines(): string[] {
         return cachedLines;
     }
 
-    const header = parseCsvLine(rows[0]);
+    const headerLine = rows[0];
+    if (!headerLine) {
+        cachedLines = [...CTA_LINE_ORDER];
+        return cachedLines;
+    }
+    const header = parseCsvLine(headerLine);
     const routeIdIdx = header.indexOf("route_id");
     if (routeIdIdx < 0) {
         cachedLines = [...CTA_LINE_ORDER];
@@ -315,7 +341,9 @@ export function listCtaSubwayLines(): string[] {
 
     const lineSet = new Set<string>();
     for (let i = 1; i < rows.length; i++) {
-        const cols = parseCsvLine(rows[i]);
+        const rowLine = rows[i];
+        if (!rowLine) continue;
+        const cols = parseCsvLine(rowLine);
         const routeId = cols[routeIdIdx]?.trim() ?? "";
         const normalized = normalizeCtaLine(routeId);
         if (normalized) lineSet.add(normalized);
