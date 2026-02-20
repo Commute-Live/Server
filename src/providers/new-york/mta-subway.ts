@@ -38,6 +38,33 @@ const feedCache = new Map<string, { feed: transit_realtime.FeedMessage; expiresA
 const inflightFeeds = new Map<string, Promise<transit_realtime.FeedMessage>>();
 let tripHeadsignByTripId: Map<string, string> | null = null;
 
+const TERMINAL_BY_LINE_DIRECTION: Record<string, { N?: string; S?: string }> = {
+    "1": { N: "Van Cortlandt Park-242 St", S: "South Ferry" },
+    "2": { N: "Wakefield-241 St", S: "Flatbush Av-Brooklyn College" },
+    "3": { N: "Harlem-148 St", S: "New Lots Av" },
+    "4": { N: "Woodlawn", S: "Crown Hts-Utica Av" },
+    "5": { N: "Eastchester-Dyre Av", S: "Flatbush Av-Brooklyn College" },
+    "6": { N: "Pelham Bay Park", S: "Brooklyn Bridge-City Hall" },
+    "7": { N: "Flushing-Main St", S: "34 St-Hudson Yards" },
+    A: { N: "Inwood-207 St", S: "Far Rockaway-Mott Av" },
+    C: { N: "168 St", S: "Euclid Av" },
+    E: { N: "Jamaica Center-Parsons/Archer", S: "World Trade Center" },
+    B: { N: "Bedford Park Blvd", S: "Brighton Beach" },
+    D: { N: "Norwood-205 St", S: "Coney Island-Stillwell Av" },
+    F: { N: "Jamaica-179 St", S: "Coney Island-Stillwell Av" },
+    M: { N: "Forest Hills-71 Av", S: "Middle Village-Metropolitan Av" },
+    G: { N: "Court Sq", S: "Church Av" },
+    J: { N: "Jamaica Center-Parsons/Archer", S: "Broad St" },
+    Z: { N: "Jamaica Center-Parsons/Archer", S: "Broad St" },
+    L: { N: "8 Av", S: "Canarsie-Rockaway Pkwy" },
+    N: { N: "Astoria-Ditmars Blvd", S: "Coney Island-Stillwell Av" },
+    Q: { N: "96 St", S: "Coney Island-Stillwell Av" },
+    R: { N: "Forest Hills-71 Av", S: "Bay Ridge-95 St" },
+    W: { N: "Astoria-Ditmars Blvd", S: "Whitehall St-South Ferry" },
+    SI: { N: "St George", S: "Tottenville" },
+    S: { N: "Times Sq-42 St", S: "Grand Central-42 St" },
+};
+
 const parseCsvLine = (line: string) => {
     const out: string[] = [];
     let cur = "";
@@ -144,6 +171,13 @@ const normalizeDirection = (direction?: string) => {
     return value === "N" || value === "S" ? value : "";
 };
 
+const fallbackDestination = (line?: string, direction?: string) => {
+    const route = normalizeLine(line);
+    const dir = normalizeDirection(direction);
+    if (!route || !dir) return undefined;
+    return TERMINAL_BY_LINE_DIRECTION[route]?.[dir] ?? undefined;
+};
+
 const normalizeSubwayArrivals = (
     feed: transit_realtime.FeedMessage,
     filters: { line?: string; stop?: string; direction?: string }
@@ -151,6 +185,7 @@ const normalizeSubwayArrivals = (
     const line = normalizeLine(filters.line);
     const stop = filters.stop?.trim();
     const direction = normalizeDirection(filters.direction);
+    const fallback = fallbackDestination(line, direction);
 
     const items: Array<{
         arrivalTime: string;
@@ -187,7 +222,7 @@ const normalizeSubwayArrivals = (
                 arrivalTime: new Date(arrivalEpochMs).toISOString(),
                 scheduledTime: scheduledEpochMs ? new Date(scheduledEpochMs).toISOString() : null,
                 delaySeconds: delay,
-                destination: destination || undefined,
+                destination: destination || fallback,
             });
             if (items.length >= 20) break;
         }
@@ -269,7 +304,7 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
             stop: params.stop,
         }) ||
         undefined;
-    const destination = arrivals[0]?.destination;
+    const destination = arrivals[0]?.destination ?? fallbackDestination(line, normalizedDirection);
 
     return {
         payload: {
