@@ -155,14 +155,10 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
         provider: primary?.provider,
-        line: primary?.line,
-        stop: primary?.stop,
-        stopId: primary?.stopId,
         direction: primary?.direction,
         directionLabel: primary?.directionLabel,
         destination: primary?.destination,
         fetchedAt: new Date().toISOString(),
-        nextArrivals: primary?.nextArrivals ?? [],
         lines,
     };
 };
