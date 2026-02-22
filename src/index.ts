@@ -1,4 +1,4 @@
-import "./tracer";
+import { ddTraceMiddleware } from "./tracer.ts";
 import "dotenv/config";
 import { Hono } from "hono/quick";
 import { cors } from "hono/cors";
@@ -33,6 +33,8 @@ const allowedOrigins = (
     .split(",")
     .map((origin) => origin.trim())
     .filter(Boolean);
+
+app.use("*", ddTraceMiddleware);
 
 app.use(
     "*",
