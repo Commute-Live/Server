@@ -2,6 +2,7 @@
 node_modules
 .env
 app.env
+.env.staging
 .DS_Store
 data/.DS_Store
 data/cta-subway/stop_times_og.txt

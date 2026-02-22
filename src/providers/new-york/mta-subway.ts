@@ -2,6 +2,7 @@ import type { ProviderPlugin, FetchContext, FetchResult } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
+import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
 import { readFileSync } from "node:fs";
 import { resolveDirectionLabel } from "../../transit/direction_label.ts";
 
@@ -32,9 +33,8 @@ const FEED_MAP: Record<string, string> = {
     SI: "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-si",
 };
 
-const FEED_CACHE_TTL_MS = 15_000;
+const FEED_CACHE_TTL_S = 30;
 
-const feedCache = new Map<string, { feed: transit_realtime.FeedMessage; expiresAt: number }>();
 const inflightFeeds = new Map<string, Promise<transit_realtime.FeedMessage>>();
 let tripHeadsignByTripId: Map<string, string> | null = null;
 
@@ -130,9 +130,11 @@ const getTripHeadsignMap = () => {
     return map;
 };
 
+const feedCacheKey = (feedUrl: string) => `mta-subway:feed:${feedUrl}`;
+
 const fetchFeed = async (feedUrl: string, now: number, log?: FetchContext["log"]) => {
-    const cached = feedCache.get(feedUrl);
-    if (cached && cached.expiresAt > now) return cached.feed;
+    const cachedBuf = await getProviderCacheBuffer(feedCacheKey(feedUrl));
+    if (cachedBuf) return transit_realtime.FeedMessage.decode(cachedBuf);
 
     const existing = inflightFeeds.get(feedUrl);
     if (existing) return existing;
@@ -144,7 +146,7 @@ const fetchFeed = async (feedUrl: string, now: number, log?: FetchContext["log"]
         }
         const buffer = Buffer.from(await res.arrayBuffer());
         const feed = transit_realtime.FeedMessage.decode(buffer);
-        feedCache.set(feedUrl, { feed, expiresAt: now + FEED_CACHE_TTL_MS });
+        await setProviderCacheBuffer(feedCacheKey(feedUrl), buffer, FEED_CACHE_TTL_S);
         inflightFeeds.delete(feedUrl);
         return feed;
     })().catch((err) => {
@@ -319,7 +321,7 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
-        ttlSeconds: 15,
+        ttlSeconds: 30,
     };
 };
 
