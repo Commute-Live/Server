@@ -3,6 +3,8 @@ import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
 import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
+import { readFileSync } from "node:fs";
+import { resolveDirectionLabel } from "../../transit/direction_label.ts";
 
 const FEED_MAP: Record<string, string> = {
     A: "https://api-endpoint.mta.info/Dataservice/mtagtfsfeeds/nyct%2Fgtfs-ace",
@@ -34,6 +36,99 @@ const FEED_MAP: Record<string, string> = {
 const FEED_CACHE_TTL_S = 30;
 
 const inflightFeeds = new Map<string, Promise<transit_realtime.FeedMessage>>();
+let tripHeadsignByTripId: Map<string, string> | null = null;
+
+const TERMINAL_BY_LINE_DIRECTION: Record<string, { N?: string; S?: string }> = {
+    "1": { N: "Van Cortlandt Park-242 St", S: "South Ferry" },
+    "2": { N: "Wakefield-241 St", S: "Flatbush Av-Brooklyn College" },
+    "3": { N: "Harlem-148 St", S: "New Lots Av" },
+    "4": { N: "Woodlawn", S: "Crown Hts-Utica Av" },
+    "5": { N: "Eastchester-Dyre Av", S: "Flatbush Av-Brooklyn College" },
+    "6": { N: "Pelham Bay Park", S: "Brooklyn Bridge-City Hall" },
+    "7": { N: "Flushing-Main St", S: "34 St-Hudson Yards" },
+    A: { N: "Inwood-207 St", S: "Far Rockaway-Mott Av" },
+    C: { N: "168 St", S: "Euclid Av" },
+    E: { N: "Jamaica Center-Parsons/Archer", S: "World Trade Center" },
+    B: { N: "Bedford Park Blvd", S: "Brighton Beach" },
+    D: { N: "Norwood-205 St", S: "Coney Island-Stillwell Av" },
+    F: { N: "Jamaica-179 St", S: "Coney Island-Stillwell Av" },
+    M: { N: "Forest Hills-71 Av", S: "Middle Village-Metropolitan Av" },
+    G: { N: "Court Sq", S: "Church Av" },
+    J: { N: "Jamaica Center-Parsons/Archer", S: "Broad St" },
+    Z: { N: "Jamaica Center-Parsons/Archer", S: "Broad St" },
+    L: { N: "8 Av", S: "Canarsie-Rockaway Pkwy" },
+    N: { N: "Astoria-Ditmars Blvd", S: "Coney Island-Stillwell Av" },
+    Q: { N: "96 St", S: "Coney Island-Stillwell Av" },
+    R: { N: "Forest Hills-71 Av", S: "Bay Ridge-95 St" },
+    W: { N: "Astoria-Ditmars Blvd", S: "Whitehall St-South Ferry" },
+    SI: { N: "St George", S: "Tottenville" },
+    S: { N: "Times Sq-42 St", S: "Grand Central-42 St" },
+};
+
+const parseCsvLine = (line: string) => {
+    const out: string[] = [];
+    let cur = "";
+    let inQuotes = false;
+
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (ch === '"') {
+            if (inQuotes && line[i + 1] === '"') {
+                cur += '"';
+                i++;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+        if (ch === "," && !inQuotes) {
+            out.push(cur);
+            cur = "";
+            continue;
+        }
+        cur += ch;
+    }
+    out.push(cur);
+    return out;
+};
+
+const getTripHeadsignMap = () => {
+    if (tripHeadsignByTripId) return tripHeadsignByTripId;
+    const map = new Map<string, string>();
+    const path = "data/mta/trips.txt";
+
+    try {
+        const lines = readFileSync(path, "utf8")
+            .split(/\r?\n/)
+            .filter((line) => line.length > 0);
+        if (lines.length === 0) {
+            tripHeadsignByTripId = map;
+            return map;
+        }
+
+        const header = parseCsvLine(lines[0] ?? "");
+        const tripIdIdx = header.indexOf("trip_id");
+        const headsignIdx = header.indexOf("trip_headsign");
+
+        if (tripIdIdx < 0 || headsignIdx < 0) {
+            tripHeadsignByTripId = map;
+            return map;
+        }
+
+        for (let i = 1; i < lines.length; i++) {
+            const cols = parseCsvLine(lines[i] ?? "");
+            const tripId = (cols[tripIdIdx] ?? "").trim();
+            const headsign = (cols[headsignIdx] ?? "").trim();
+            if (!tripId || !headsign) continue;
+            map.set(tripId, headsign);
+        }
+    } catch {
+        // Keep empty map on file or parse failures.
+    }
+
+    tripHeadsignByTripId = map;
+    return map;
+};
 
 const feedCacheKey = (feedUrl: string) => `mta-subway:feed:${feedUrl}`;
 
@@ -78,6 +173,13 @@ const normalizeDirection = (direction?: string) => {
     return value === "N" || value === "S" ? value : "";
 };
 
+const fallbackDestination = (line?: string, direction?: string) => {
+    const route = normalizeLine(line);
+    const dir = normalizeDirection(direction);
+    if (!route || !dir) return undefined;
+    return TERMINAL_BY_LINE_DIRECTION[route]?.[dir] ?? undefined;
+};
+
 const normalizeSubwayArrivals = (
     feed: transit_realtime.FeedMessage,
     filters: { line?: string; stop?: string; direction?: string }
@@ -85,12 +187,16 @@ const normalizeSubwayArrivals = (
     const line = normalizeLine(filters.line);
     const stop = filters.stop?.trim();
     const direction = normalizeDirection(filters.direction);
+    const fallback = fallbackDestination(line, direction);
 
     const items: Array<{
         arrivalTime: string;
         scheduledTime: string | null;
         delaySeconds: number | null;
+        destination?: string;
     }> = [];
+
+    const tripHeadsigns = getTripHeadsignMap();
 
     for (const entity of feed.entity) {
         const tripUpdate = entity.tripUpdate;
@@ -98,6 +204,8 @@ const normalizeSubwayArrivals = (
 
         const routeId = normalizeLine(tripUpdate.trip?.routeId);
         if (line && routeId && routeId !== line) continue;
+        const tripId = tripUpdate.trip?.tripId ?? "";
+        const destination = tripId ? tripHeadsigns.get(tripId) : undefined;
 
         for (const stu of tripUpdate.stopTimeUpdate ?? []) {
             const stopId = stu.stopId ?? "unknown";
@@ -116,6 +224,7 @@ const normalizeSubwayArrivals = (
                 arrivalTime: new Date(arrivalEpochMs).toISOString(),
                 scheduledTime: scheduledEpochMs ? new Date(scheduledEpochMs).toISOString() : null,
                 delaySeconds: delay,
+                destination: destination || fallback,
             });
             if (items.length >= 20) break;
         }
@@ -147,12 +256,12 @@ const sampleStops = (feed: transit_realtime.FeedMessage, limit = 12) => {
 };
 
 const pickUpcomingArrivals = (
-    arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }>,
+    arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null; destination?: string }>,
     nowMs: number
 ) => {
     const graceMs = 15_000;
     const seen = new Set<string>();
-    const filtered: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }> = [];
+    const filtered: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null; destination?: string }> = [];
 
     for (const item of arrivals) {
         const ts = Date.parse(item.arrivalTime);
@@ -189,13 +298,24 @@ const fetchArrivals = async (key: string, ctx: FetchContext): Promise<FetchResul
     }
 
     arrivals = pickUpcomingArrivals(arrivals, ctx.now);
+    const normalizedDirection = normalizeDirection(params.direction);
+    const directionLabel =
+        resolveDirectionLabel({
+            line,
+            direction: normalizedDirection,
+            stop: params.stop,
+        }) ||
+        undefined;
+    const destination = arrivals[0]?.destination ?? fallbackDestination(line, normalizedDirection);
 
     return {
         payload: {
             provider: "mta-subway",
             line,
             stop: params.stop,
-            direction: params.direction,
+            direction: normalizedDirection || params.direction,
+            directionLabel,
+            destination,
             feedUrl,
             entities: feed.entity.length,
             arrivals,

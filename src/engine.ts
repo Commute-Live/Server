@@ -16,10 +16,19 @@ type EngineOptions = {
 type DeviceOptions = {
     displayType: number;
     scrolling: boolean;
+    arrivalsToDisplay: number;
 };
 
 const defaultPublish = (topic: string, payload: unknown) => {
     console.log("[PUBLISH]", topic, JSON.stringify(payload));
+};
+
+const MAX_ARRIVALS_PER_LINE = 3;
+const clampArrivalsToDisplay = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return 1;
+    if (value < 1) return 1;
+    if (value > 3) return 3;
+    return Math.trunc(value);
 };
 
 // Creates Key --> DeviceIds && DeviceIds --> Keys
@@ -53,6 +62,7 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
             deviceOptions.set(sub.deviceId, {
                 displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
                 scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
+                arrivalsToDisplay: clampArrivalsToDisplay(sub.arrivalsToDisplay),
             });
         }
     }
@@ -66,13 +76,77 @@ const extractNextArrivals = (payload: unknown) => {
     const arrivalsRaw = body.arrivals;
     if (!Array.isArray(arrivalsRaw)) return [];
 
-    return arrivalsRaw.slice(0, 3).map((item) => {
+    return arrivalsRaw.slice(0, MAX_ARRIVALS_PER_LINE).map((item) => {
         const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
         return {
             arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
             delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
+            destination: typeof row.destination === "string" ? row.destination : undefined,
         };
     });
+};
+
+const stripArrivalTimeForDevice = (
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    fetchedAt?: string,
+    fallbackDestination?: string,
+) => {
+    const baseline = parseIsoMs(fetchedAt) ?? Date.now();
+    const normalized = arrivals.map((arrival) => {
+        let eta = "--";
+        const ts = parseIsoMs(arrival.arrivalTime);
+        if (ts !== undefined) {
+            const diffSec = Math.max(0, Math.floor((ts - baseline) / 1000));
+            const mins = Math.floor((diffSec + 59) / 60);
+            eta = mins <= 1 ? "DUE" : `${mins}m`;
+        }
+
+        return {
+            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : 0,
+            destination: arrival.destination ?? fallbackDestination,
+            eta,
+        };
+    });
+
+    while (normalized.length < MAX_ARRIVALS_PER_LINE) {
+        normalized.push({
+            delaySeconds: 0,
+            destination: fallbackDestination,
+            eta: "--",
+        });
+    }
+
+    return normalized.slice(0, MAX_ARRIVALS_PER_LINE);
+};
+
+const parseIsoMs = (value?: string) => {
+    if (!value) return undefined;
+    const ts = Date.parse(value);
+    return Number.isFinite(ts) ? ts : undefined;
+};
+
+const etaTextFromArrivals = (
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    fetchedAt?: string,
+) => {
+    if (!arrivals.length) return "--";
+
+    const baseline = parseIsoMs(fetchedAt) ?? Date.now();
+    let sawDue = false;
+
+    for (const arrival of arrivals) {
+        const ts = parseIsoMs(arrival.arrivalTime);
+        if (ts === undefined) continue;
+        const diffSec = Math.max(0, Math.floor((ts - baseline) / 1000));
+        const mins = Math.floor((diffSec + 59) / 60);
+        if (mins <= 1) {
+            sawDue = true;
+            continue;
+        }
+        return `${mins}m`;
+    }
+
+    return sawDue ? "DUE" : "--";
 };
 
 type DeviceLinePayload = {
@@ -82,8 +156,9 @@ type DeviceLinePayload = {
     stopId?: string;
     direction?: string;
     directionLabel?: string;
-    fetchedAt?: string;
-    nextArrivals: Array<{ arrivalTime?: string; delaySeconds?: number }>;
+    nextArrivals: Array<{ delaySeconds?: number; destination?: string; eta?: string }>;
+    destination?: string;
+    eta?: string;
 };
 
 const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
@@ -116,8 +191,12 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         resolveDirectionLabel({
             line: line || undefined,
             direction,
-            stop: stopName ?? stopId,
+            stop: stopName,
         });
+
+    const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
+    const nextArrivals = extractNextArrivals(payload);
+    const eta = etaTextFromArrivals(nextArrivals, fetchedAt);
 
     return {
         provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
@@ -126,8 +205,18 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         stopId,
         direction,
         directionLabel: directionLabel || undefined,
-        fetchedAt: typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString(),
-        nextArrivals: extractNextArrivals(payload),
+        destination:
+            typeof body.destination === "string" && body.destination.length > 0
+                ? body.destination
+                : undefined,
+        nextArrivals: stripArrivalTimeForDevice(
+            nextArrivals,
+            fetchedAt,
+            typeof body.destination === "string" && body.destination.length > 0
+                ? body.destination
+                : undefined,
+        ),
+        eta,
     };
 };
 
@@ -145,18 +234,18 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
 
     const primary = lines[0];
+    const linesForDevice = lines.map(({ provider, stop, stopId, direction, eta, ...rest }) => rest);
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
+        arrivalsToDisplay: clampArrivalsToDisplay(deviceOptions?.arrivalsToDisplay),
         provider: primary?.provider,
-        line: primary?.line,
         stop: primary?.stop,
         stopId: primary?.stopId,
         direction: primary?.direction,
         directionLabel: primary?.directionLabel,
-        fetchedAt: new Date().toISOString(),
-        nextArrivals: primary?.nextArrivals ?? [],
-        lines,
+        destination: primary?.destination,
+        lines: linesForDevice,
     };
 };
 

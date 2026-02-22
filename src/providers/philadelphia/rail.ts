@@ -109,10 +109,12 @@ const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = D
         .filter((a) => (direction ? a.direction === direction : true))
         .map((a) => {
             const arrivalIso = parseTimeToIso(a.depart_time ?? a.sched_time, nowMs);
+            const destination = cleanDirectionLabel(a.destination) || cleanDirectionLabel(a.next_station) || undefined;
             return {
                 arrivalTime: arrivalIso,
                 scheduledTime: arrivalIso,
                 delaySeconds: null,
+                destination,
             };
         })
         .filter((a) => !!a.arrivalTime)
@@ -183,6 +185,8 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         );
     }
 
+    const destination = cleanDirectionLabel(first?.destination) || cleanDirectionLabel(first?.next_station) || undefined;
+
     return {
         payload: {
             provider: "septa-rail",
@@ -191,6 +195,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
             stopId: stationRaw,
             direction: direction ?? first?.direction,
             directionLabel,
+            destination,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },

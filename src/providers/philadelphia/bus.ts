@@ -36,6 +36,62 @@ const loadStopNames = (() => {
     };
 })();
 
+const loadTripHeadsigns = (() => {
+    let map: Map<string, string> | null = null;
+    return () => {
+        if (map) return map;
+        map = new Map<string, string>();
+        try {
+            const csv = readFileSync("data/septa/bus/trips.txt", "utf8").split(/\r?\n/);
+            const header = csv.shift()?.split(",") ?? [];
+            const tripIdIdx = header.indexOf("trip_id");
+            const headsignIdx = header.indexOf("trip_headsign");
+            if (tripIdIdx >= 0 && headsignIdx >= 0) {
+                for (const line of csv) {
+                    if (!line) continue;
+                    const cols = line.split(",");
+                    const tripId = cols[tripIdIdx]?.trim();
+                    const headsign = cols[headsignIdx]?.trim();
+                    if (tripId && headsign) map.set(tripId, headsign);
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return map;
+    };
+})();
+
+const loadDirectionDestinations = (() => {
+    let map: Map<string, string> | null = null;
+    return () => {
+        if (map) return map;
+        map = new Map<string, string>();
+        try {
+            const csv = readFileSync("data/septa/bus/directions.txt", "utf8").split(/\r?\n/);
+            const header = csv.shift()?.split(",") ?? [];
+            const routeIdIdx = header.indexOf("route_id");
+            const directionIdIdx = header.indexOf("direction_id");
+            const directionDestinationIdx = header.indexOf("direction_destination");
+            if (routeIdIdx >= 0 && directionIdIdx >= 0 && directionDestinationIdx >= 0) {
+                for (const line of csv) {
+                    if (!line) continue;
+                    const cols = line.split(",");
+                    const routeId = cols[routeIdIdx]?.trim();
+                    const directionId = cols[directionIdIdx]?.trim();
+                    const directionDestination = cols[directionDestinationIdx]?.trim();
+                    if (routeId && directionId && directionDestination) {
+                        map.set(`${routeId}:${directionId}`, directionDestination);
+                    }
+                }
+            }
+        } catch {
+            // ignore
+        }
+        return map;
+    };
+})();
+
 const fetchFeed = async (now: number) => {
     const cachedBuf = await getProviderCacheBuffer(FEED_CACHE_KEY);
     if (cachedBuf) return transit_realtime.FeedMessage.decode(cachedBuf);
@@ -61,7 +117,12 @@ const pickArrivals = (
     filters: { route?: string; stop?: string; direction?: string },
     nowMs: number
 ) => {
-    const arrivals: Array<{ arrivalTime: string; scheduledTime: string | null; delaySeconds: number | null }> = [];
+    const arrivals: Array<{
+        arrivalTime: string;
+        scheduledTime: string | null;
+        delaySeconds: number | null;
+        destination?: string;
+    }> = [];
     const route = filters.route?.trim();
     const stop = filters.stop?.trim();
     const direction = filters.direction?.trim();
@@ -84,10 +145,27 @@ const pickArrivals = (
             if (!Number.isFinite(arrivalEpochMs)) continue;
 
             const scheduledEpochMs = delay !== null ? arrivalEpochMs - delay * 1000 : null;
+            const trip = tu.trip as unknown as {
+                tripId?: string;
+                routeId?: string;
+                directionId?: number;
+                tripHeadsign?: string;
+            };
+            const tripId = trip?.tripId?.trim();
+            const routeId = trip?.routeId?.trim();
+            const directionId = trip?.directionId;
+            const destinationFromTrip = (trip?.tripHeadsign ?? "").trim() || undefined;
+            const destinationFromTrips = tripId ? loadTripHeadsigns().get(tripId) : undefined;
+            const destinationFromDirection =
+                routeId && (directionId === 0 || directionId === 1)
+                    ? loadDirectionDestinations().get(`${routeId}:${directionId}`)
+                    : undefined;
+            const destination = destinationFromTrip ?? destinationFromTrips ?? destinationFromDirection;
             arrivals.push({
                 arrivalTime: new Date(arrivalEpochMs).toISOString(),
                 scheduledTime: scheduledEpochMs ? new Date(scheduledEpochMs).toISOString() : null,
                 delaySeconds: delay,
+                destination,
             });
             if (arrivals.length >= 20) break;
         }
@@ -125,6 +203,7 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
     }
     const stopNames = loadStopNames();
     const stopName = stopNames.get(stop);
+    const destination = arrivals.find((a) => typeof a.destination === "string" && a.destination.length > 0)?.destination;
 
     return {
         payload: {
@@ -133,7 +212,8 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
             stop: stopName ?? stop,
             stopId: stop,
             direction,
-            directionLabel: stopName ?? stop,
+            directionLabel: destination ?? direction ?? stopName ?? stop,
+            destination,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },

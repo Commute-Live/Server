@@ -13,6 +13,16 @@ type SiriStopMonitoringResponse = {
     };
 };
 
+const toText = (value: unknown): string | undefined => {
+    if (typeof value === "string" && value.trim().length > 0) return value.trim();
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            if (typeof item === "string" && item.trim().length > 0) return item.trim();
+        }
+    }
+    return undefined;
+};
+
 const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
     const stop = params.stop;
@@ -52,11 +62,21 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
     const pickStopName = (visits: any[]) => {
         for (const visit of visits) {
             const name = visit?.MonitoredVehicleJourney?.MonitoredCall?.StopPointName;
-            if (typeof name === "string" && name.trim()) return name.trim();
-            if (Array.isArray(name) && name.length) {
-                const first = name.find((v) => typeof v === "string" && v.trim());
-                if (first) return first.trim();
-            }
+            const text = toText(name);
+            if (text) return text;
+        }
+        return undefined;
+    };
+
+    const pickDestination = (visits: any[]) => {
+        for (const visit of visits) {
+            const journey = visit?.MonitoredVehicleJourney ?? {};
+            const call = journey?.MonitoredCall ?? {};
+            const destination =
+                toText(journey?.DestinationName) ??
+                toText(call?.DestinationName) ??
+                toText(call?.DestinationDisplay);
+            if (destination) return destination;
         }
         return undefined;
     };
@@ -72,20 +92,28 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
     const stopName = pickStopName(visits);
 
     const arrivals = visits.slice(0, 10).map((visit: any) => {
-        const mvp = visit.MonitoredVehicleJourney?.MonitoredCall ?? {};
-        const aimed = mvp.AimedArrivalTime || mvp.AimedDepartureTime || null;
-        const expected = mvp.ExpectedArrivalTime || mvp.ExpectedDepartureTime || aimed;
+        const journey = visit?.MonitoredVehicleJourney ?? {};
+        const call = journey?.MonitoredCall ?? {};
+        const aimed = call.AimedArrivalTime || call.AimedDepartureTime || null;
+        const expected = call.ExpectedArrivalTime || call.ExpectedDepartureTime || aimed;
         const expectedMs = expected ? Date.parse(expected) : null;
         const aimedMs = aimed ? Date.parse(aimed) : null;
         const delaySeconds =
             expectedMs !== null && aimedMs !== null ? Math.round((expectedMs - aimedMs) / 1000) : null;
+        const destination =
+            toText(journey?.DestinationName) ??
+            toText(call?.DestinationName) ??
+            toText(call?.DestinationDisplay);
 
         return {
             arrivalTime: expected ?? null,
             scheduledTime: aimed ?? null,
             delaySeconds,
+            destination,
         };
     });
+
+    const destination = pickDestination(visits);
 
     return {
         payload: {
@@ -93,6 +121,8 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
             stop,
             line,
             direction,
+            directionLabel: destination,
+            destination,
             stopName,
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),

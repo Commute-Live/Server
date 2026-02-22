@@ -12,6 +12,15 @@ import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 const DEFAULT_BRIGHTNESS = 60;
 const DEFAULT_DISPLAY_TYPE = 1;
 const DEFAULT_SCROLLING = false;
+const DEFAULT_ARRIVALS_TO_DISPLAY = 1;
+const SUPPORTED_PROVIDERS = new Set([
+    "mta-subway",
+    "mta-bus",
+    "mbta",
+    "cta-subway",
+    "septa-rail",
+    "septa-bus",
+]);
 
 const validateLines = (lines: unknown): lines is LineConfig[] => {
     if (!Array.isArray(lines)) return false;
@@ -39,6 +48,13 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
             return false;
         return true;
     });
+};
+
+const normalizeArrivalsToDisplay = (value: unknown) => {
+    if (typeof value !== "number" || Number.isNaN(value)) return DEFAULT_ARRIVALS_TO_DISPLAY;
+    if (value < 1) return 1;
+    if (value > 3) return 3;
+    return Math.trunc(value);
 };
 
 const normalizeConfig = (
@@ -76,6 +92,12 @@ const normalizeConfig = (
             : typeof current.scrolling === "boolean"
               ? current.scrolling
               : DEFAULT_SCROLLING;
+    const arrivalsToDisplay =
+        updates.arrivalsToDisplay !== undefined
+            ? normalizeArrivalsToDisplay(updates.arrivalsToDisplay)
+            : current.arrivalsToDisplay !== undefined
+              ? normalizeArrivalsToDisplay(current.arrivalsToDisplay)
+              : DEFAULT_ARRIVALS_TO_DISPLAY;
 
     return {
         ...current,
@@ -84,6 +106,7 @@ const normalizeConfig = (
         lines,
         displayType,
         scrolling,
+        arrivalsToDisplay,
     };
 };
 
@@ -150,6 +173,13 @@ export function registerConfig(app: Hono, deps: dependency) {
                     }
                 }
 
+                if ("arrivalsToDisplay" in (body as Record<string, unknown>)) {
+                    const maybeArrivalsToDisplay = (body as Record<string, unknown>).arrivalsToDisplay;
+                    if (typeof maybeArrivalsToDisplay === "number" && !Number.isNaN(maybeArrivalsToDisplay)) {
+                        updates.arrivalsToDisplay = normalizeArrivalsToDisplay(maybeArrivalsToDisplay);
+                    }
+                }
+
                 if ("lines" in (body as Record<string, unknown>)) {
                     const proposed = (body as Record<string, unknown>).lines;
                     if (proposed === undefined || proposed === null) {
@@ -173,11 +203,18 @@ export function registerConfig(app: Hono, deps: dependency) {
                     const line = (row.line ?? "").trim().toUpperCase();
                     const stop = (row.stop ?? "").trim().toUpperCase();
 
-                    if (
-                        (provider === "mta-subway" || provider === "mta") &&
-                        line &&
-                        stop
-                    ) {
+                    if (!SUPPORTED_PROVIDERS.has(provider)) {
+                        return c.json(
+                            {
+                                error: `Unsupported provider '${provider}'. Supported providers: ${Array.from(
+                                    SUPPORTED_PROVIDERS,
+                                ).join(", ")}`,
+                            },
+                            400,
+                        );
+                    }
+
+                    if (provider === "mta-subway" && line && stop) {
                         const stopLines = await listLinesForStop(stop);
                         const normalizedStopLines = stopLines.map((v) =>
                             v.trim().toUpperCase(),

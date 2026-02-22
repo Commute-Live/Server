@@ -27,10 +27,10 @@ export function resolveDirectionLabel(input: { line?: string; direction?: string
     if (line && direction && LINE_DIRECTION_LABELS[line]) {
         return LINE_DIRECTION_LABELS[line][direction];
     }
+    if (direction === "N") return "Uptown";
+    if (direction === "S") return "Downtown";
     if (input.stop && input.stop.trim().length > 0) {
         return input.stop.trim();
     }
-    if (direction === "N") return "Uptown";
-    if (direction === "S") return "Downtown";
     return "";
 }
