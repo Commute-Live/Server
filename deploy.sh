@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd /opt/commute-live
+cd /deploy/Server
 git pull origin main
 
 # set DD_VERSION to current git short hash (.env files don't support shell substitution)
