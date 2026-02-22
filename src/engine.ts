@@ -3,6 +3,7 @@ import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
+import { metrics } from "./metrics.ts";
 import "./providers/register.ts";
 
 type EngineOptions = {
@@ -287,12 +288,15 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 return;
             }
             const now = Date.now();
+            const providerTag = `provider:${providerId}`;
             try {
+                const fetchStart = Date.now();
                 const result = await provider.fetch(key, {
                     now,
                     key,
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
+                metrics.histogram("engine.fetch.duration", Date.now() - fetchStart, [providerTag]);
                 await setCacheEntry(key, result.payload, result.ttlSeconds, now);
                 const deviceIds = fanout.get(key);
                 if (deviceIds?.size) {
@@ -302,6 +306,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 }
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
+                metrics.increment("engine.fetch.error", [providerTag]);
             } finally {
                 inflight.delete(key);
             }
@@ -322,9 +327,13 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 if (expired) {
                     const ttlRemaining = entry ? entry.expiresAt - now : -1;
                     console.log(`[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`);
+                    metrics.increment("engine.cache.miss");
                     void fetchKey(key);
+                } else {
+                    metrics.increment("engine.cache.hit");
                 }
             }
+            metrics.gauge("engine.inflight", inflight.size);
         } finally {
             refreshLoopRunning = false;
         }
@@ -348,6 +357,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
+        metrics.gauge("engine.devices.active", deviceToKeys.size);
+        metrics.gauge("engine.fanout.keys", fanout.size);
         await scheduleFetches();
     };
 
