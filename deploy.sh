@@ -2,7 +2,8 @@
 set -e
 
 cd /opt/Server
-git pull origin main
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+git pull origin "$BRANCH"
 
 # set DD_VERSION to current git short hash (.env files don't support shell substitution)
 export DD_VERSION=$(git rev-parse --short HEAD)
