@@ -15,4 +15,4 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            /deploy/Server/deploy.sh
+            /opt/Server/deploy.sh
