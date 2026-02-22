@@ -2,13 +2,14 @@ import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
 import { readFileSync } from "node:fs";
 
 const TRIP_FEED_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
-const FEED_TTL_MS = 15_000;
+const FEED_TTL_S = 15;
 const CACHE_TTL_SECONDS = 20;
+const FEED_CACHE_KEY = "septa-bus:feed";
 
-const feedCache: { feed: transit_realtime.FeedMessage; expiresAt: number } = { feed: undefined as any, expiresAt: 0 };
 let inflight: Promise<transit_realtime.FeedMessage> | null = null;
 
 const loadStopNames = (() => {
@@ -36,15 +37,16 @@ const loadStopNames = (() => {
 })();
 
 const fetchFeed = async (now: number) => {
-    if (feedCache.feed && feedCache.expiresAt > now) return feedCache.feed;
+    const cachedBuf = await getProviderCacheBuffer(FEED_CACHE_KEY);
+    if (cachedBuf) return transit_realtime.FeedMessage.decode(cachedBuf);
+
     if (inflight) return inflight;
     inflight = (async () => {
         const res = await fetch(TRIP_FEED_URL);
         if (!res.ok) throw new Error(`SEPTA trip feed error ${res.status} ${res.statusText}`);
         const buffer = Buffer.from(await res.arrayBuffer());
         const feed = transit_realtime.FeedMessage.decode(buffer);
-        feedCache.feed = feed;
-        feedCache.expiresAt = now + FEED_TTL_MS;
+        await setProviderCacheBuffer(FEED_CACHE_KEY, buffer, FEED_TTL_S);
         inflight = null;
         return feed;
     })().catch((err) => {

@@ -1,5 +1,6 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { getProviderCache, setProviderCache } from "../../cache.ts";
 
 type MbtaPrediction = {
     id: string;
@@ -53,17 +54,10 @@ type MbtaResponse = {
 
 const MBTA_BASE_URL = "https://api-v3.mbta.com";
 const CACHE_TTL_SECONDS = 20;
-const ROUTE_CACHE_TTL_MS = CACHE_TTL_SECONDS * 1000;
 
-const routeCache = new Map<
-    string,
-    {
-        expiresAt: number;
-        predictions: MbtaPrediction[];
-        included: MbtaIncluded[];
-    }
->();
 const inflightRouteFetch = new Map<string, Promise<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }>>();
+
+const routeCacheKey = (key: string) => `mbta:route:${key}`;
 
 type ArrivalItem = {
     arrivalTime: string;
@@ -191,24 +185,21 @@ const fetchMbtaArrivals = async (key: string, ctx: FetchContext): Promise<FetchR
         };
     };
 
-    const routeCacheKey = `${line}|${directionId ?? "any"}`;
-    const now = ctx.now;
+    const cacheKey = `${line}|${directionId ?? "any"}`;
 
     const getRouteBundle = async (): Promise<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }> => {
-        const cached = routeCache.get(routeCacheKey);
-        if (cached && cached.expiresAt > now) {
-            return cached;
-        }
+        const cached = await getProviderCache<{ predictions: MbtaPrediction[]; included: MbtaIncluded[] }>(routeCacheKey(cacheKey));
+        if (cached) return cached;
 
-        const existing = inflightRouteFetch.get(routeCacheKey);
+        const existing = inflightRouteFetch.get(cacheKey);
         if (existing) return existing;
 
-        const work = fetchPredictions(buildUrl({ line, directionId })).then((bundle) => {
-            routeCache.set(routeCacheKey, { ...bundle, expiresAt: now + ROUTE_CACHE_TTL_MS });
-            inflightRouteFetch.delete(routeCacheKey);
+        const work = fetchPredictions(buildUrl({ line, directionId })).then(async (bundle) => {
+            await setProviderCache(routeCacheKey(cacheKey), bundle, CACHE_TTL_SECONDS);
+            inflightRouteFetch.delete(cacheKey);
             return bundle;
         });
-        inflightRouteFetch.set(routeCacheKey, work);
+        inflightRouteFetch.set(cacheKey, work);
         return work;
     };
 

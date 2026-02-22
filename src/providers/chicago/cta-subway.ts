@@ -1,5 +1,6 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { getProviderCache, setProviderCache } from "../../cache.ts";
 
 const CTA_BASE_URL = "https://lapi.transitchicago.com/api/1.0/ttarrivals.aspx";
 const CTA_STATION_NAME_BY_ID: Record<string, string> = {
@@ -64,16 +65,16 @@ const normalizeDirection = (raw?: string) => {
     return undefined;
 };
 
-const STOP_CACHE_TTL_MS = 20_000;
-const stopCache = new Map<string, { expiresAt: number; etas: CtaEta[] }>();
+const STOP_CACHE_TTL_S = 20;
 const inflightStopFetch = new Map<string, Promise<{ etas: CtaEta[] }>>();
+
+const stopCacheKey = (stop: string) => `cta-subway:stop:${stop}`;
 
 const getStopBundle = async (opts: { stop: string; apiKey: string }) => {
     const { stop, apiKey } = opts;
-    const now = Date.now();
 
-    const cached = stopCache.get(stop);
-    if (cached && cached.expiresAt > now) return cached;
+    const cached = await getProviderCache<{ etas: CtaEta[] }>(stopCacheKey(stop));
+    if (cached) return cached;
 
     const existing = inflightStopFetch.get(stop);
     if (existing) return existing;
@@ -106,11 +107,8 @@ const getStopBundle = async (opts: { stop: string; apiKey: string }) => {
             throw new Error(`CTA error ${errCd}: ${errNm}`);
         }
 
-        const bundle = {
-            etas: normalizeEtas(body?.eta),
-            expiresAt: now + STOP_CACHE_TTL_MS,
-        };
-        stopCache.set(stop, bundle);
+        const bundle = { etas: normalizeEtas(body?.eta) };
+        await setProviderCache(stopCacheKey(stop), bundle, STOP_CACHE_TTL_S);
         inflightStopFetch.delete(stop);
         return bundle;
     })().catch((err) => {

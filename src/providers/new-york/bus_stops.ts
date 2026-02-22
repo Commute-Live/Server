@@ -9,9 +9,11 @@ export type NycBusRoute = {
     label: string;
 };
 
+import { getProviderCache, setProviderCache } from "../../cache.ts";
+
 const MTA_BUS_BASE = "https://bustime.mta.info/api/where";
-const BUS_ROUTES_CACHE_TTL_MS = 10 * 60 * 1000;
-let busRoutesCache: { expiresAt: number; routes: NycBusRoute[] } | null = null;
+const BUS_ROUTES_CACHE_TTL_S = 10 * 60;
+const BUS_ROUTES_CACHE_KEY = "mta-bus:routes";
 
 export const normalizeMtaBusRoute = (route: string) => route.trim().toUpperCase();
 
@@ -114,10 +116,8 @@ const normalizeRouteLabel = (route: { id?: string; shortName?: string; longName?
 };
 
 export const listMtaBusRoutes = async (): Promise<NycBusRoute[]> => {
-    const now = Date.now();
-    if (busRoutesCache && busRoutesCache.expiresAt > now) {
-        return busRoutesCache.routes;
-    }
+    const cached = await getProviderCache<NycBusRoute[]>(BUS_ROUTES_CACHE_KEY);
+    if (cached) return cached;
 
     const apiKey = process.env.MTA_BUS_API_KEY;
     if (!apiKey) {
@@ -147,7 +147,7 @@ export const listMtaBusRoutes = async (): Promise<NycBusRoute[]> => {
     }
 
     const routes = Array.from(map.values()).sort((a, b) => a.id.localeCompare(b.id));
-    busRoutesCache = { expiresAt: now + BUS_ROUTES_CACHE_TTL_MS, routes };
+    await setProviderCache(BUS_ROUTES_CACHE_KEY, routes, BUS_ROUTES_CACHE_TTL_S);
     return routes;
 };
 

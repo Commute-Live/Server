@@ -231,6 +231,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 const entry = await getCacheEntry(key);
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
+                    const ttlRemaining = entry ? entry.expiresAt - now : -1;
+                    console.log(`[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`);
                     void fetchKey(key);
                 }
             }

@@ -1,4 +1,4 @@
-import { createClient } from "redis";
+import { createClient, commandOptions } from "redis";
 import type { CacheEntry } from "./types.ts";
 
 const CACHE_PREFIX = "commutelive:arrivals-cache:";
@@ -106,6 +106,41 @@ export const markExpired = async (key: string, now: number): Promise<void> => {
         expiresAt: now,
     };
     await client.set(toRedisKey(key), JSON.stringify(placeholder), { EX: 5 });
+};
+
+// ── Provider-level cache helpers ─────────────────────────────────────────────
+const PROVIDER_PREFIX = "commutelive:provider:";
+
+export const getProviderCache = async <T>(key: string): Promise<T | null> => {
+    const client = await getRedisClient();
+    const raw = await client.get(`${PROVIDER_PREFIX}${key}`);
+    if (!raw) return null;
+    try {
+        return JSON.parse(raw) as T;
+    } catch {
+        return null;
+    }
+};
+
+export const setProviderCache = async <T>(key: string, value: T, ttlSeconds: number): Promise<void> => {
+    const client = await getRedisClient();
+    await client.set(`${PROVIDER_PREFIX}${key}`, JSON.stringify(value), {
+        EX: Math.max(1, Math.floor(ttlSeconds)),
+    });
+};
+
+export const getProviderCacheBuffer = async (key: string): Promise<Buffer | null> => {
+    const client = await getRedisClient();
+    const raw = await client.get(commandOptions({ returnBuffers: true }), `${PROVIDER_PREFIX}${key}`);
+    if (!raw || typeof raw === "string") return null;
+    return Buffer.from(raw);
+};
+
+export const setProviderCacheBuffer = async (key: string, value: Buffer, ttlSeconds: number): Promise<void> => {
+    const client = await getRedisClient();
+    await client.set(`${PROVIDER_PREFIX}${key}`, value, {
+        EX: Math.max(1, Math.floor(ttlSeconds)),
+    });
 };
 
 export const cacheMap = async (): Promise<Map<string, CacheEntry>> => {
