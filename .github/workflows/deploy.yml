@@ -2,11 +2,27 @@ name: Deploy CommuteLive
 
 on:
   push:
-    branches: ["main"]
+    branches: ["main", "stage"]
 
 jobs:
-  deploy:
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Deploy via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script: |
+            /opt/Server/deploy.sh
+
+  deploy-staging:
+    if: github.ref == 'refs/heads/stage'
+    runs-on: ubuntu-latest
+    environment: staging
     steps:
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.0.3
