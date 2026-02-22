@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-cd /deploy/Server
+cd /opt/Server
 git pull origin main
 
 # set DD_VERSION to current git short hash (.env files don't support shell substitution)
