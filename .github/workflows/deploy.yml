@@ -2,7 +2,7 @@ name: Deploy CommuteLive
 
 on:
   push:
-    branches: [ "main" ]
+    branches: ["main"]
 
 jobs:
   deploy:
@@ -15,4 +15,4 @@ jobs:
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
           script: |
-            /opt/commute-live/deploy.sh
+            /deploy/Server/deploy.sh
