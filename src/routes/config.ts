@@ -5,6 +5,7 @@ import { devices } from "../db/schema/schema.ts";
 import type { DeviceConfig, LineConfig } from "../types.ts";
 import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
+import { loadtestGuard } from "../middleware/loadtest.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
 import { listCtaSubwayLinesForStop } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
@@ -111,7 +112,7 @@ const normalizeConfig = (
 };
 
 export function registerConfig(app: Hono, deps: dependency) {
-    app.get("/device/:deviceId/config", async (c) => {
+    app.get("/device/:deviceId/config", loadtestGuard, async (c) => {
         const deviceId = c.req.param("deviceId");
         const [device] = await deps.db
             .select({ config: devices.config })
@@ -131,6 +132,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.post(
         "/device/:deviceId/config",
+        loadtestGuard,
         authRequired,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
