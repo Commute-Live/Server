@@ -1,4 +1,4 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import {
     septaIngestRuns,
     septaRouteStops,
@@ -10,6 +10,29 @@ import { logger } from "../logger.ts";
 import { normalizeDirection, normalizeRouteId } from "./catalog.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
+const INVALID_RAIL_LINE_TOKENS = new Set(["LOCAL", "EXPRESS", "EXP"]);
+const CANONICAL_RAIL_LINES = [
+    { code: "AIR", displayName: "Airport" },
+    { code: "WAR", displayName: "Warminster" },
+    { code: "WIL", displayName: "Wilmington/Newark" },
+    { code: "MED", displayName: "Media/Wawa" },
+    { code: "WTR", displayName: "West Trenton" },
+    { code: "LAN", displayName: "Lansdale/Doylestown" },
+    { code: "PAO", displayName: "Paoli/Thorndale" },
+    { code: "CYN", displayName: "Cynwyd" },
+    { code: "NOR", displayName: "Manayunk/Norristown" },
+    { code: "CHE", displayName: "Chestnut Hill East" },
+    { code: "TRE", displayName: "Trenton" },
+    { code: "CHW", displayName: "Chestnut Hill West" },
+    { code: "FOX", displayName: "Fox Chase" },
+] as const;
+const CANONICAL_RAIL_CODES = new Set(CANONICAL_RAIL_LINES.map((r) => r.code));
+const CANONICAL_RAIL_BY_LINE = new Map(
+    CANONICAL_RAIL_LINES.map((r) => [
+        r.displayName.replace(/\s+line$/i, "").trim().toUpperCase(),
+        r,
+    ]),
+);
 
 type DbLike = {
     select: Function;
@@ -81,6 +104,10 @@ const readField = (record: Record<string, unknown>, keys: string[]) => {
 };
 
 const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ");
+const normalizeRailLineKey = (value: string) =>
+    normalizeName(value)
+        .replace(/\s+line$/i, "")
+        .toUpperCase();
 
 const classifySurfaceMode = (record: Record<string, unknown>, routeId: string): SeptaMode => {
     const routeType = readField(record, ["route_type", "routetype"]).trim();
@@ -100,69 +127,15 @@ async function fetchRecords(url: string): Promise<Array<Record<string, unknown>>
     return toRecords(parseJsonSafe(text));
 }
 
-const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
-const INVALID_RAIL_LINE_TOKENS = new Set(["LOCAL", "EXPRESS", "EXP"]);
-
 const normalizeRailLineName = (value: string): string => {
     const normalized = normalizeName(value);
     return normalized;
 };
 
 const isInvalidRailLineName = (value: string): boolean => {
-    const key = value.trim().toUpperCase();
+    const key = normalizeRailLineKey(value);
     if (!key) return true;
     return INVALID_RAIL_LINE_TOKENS.has(key);
-};
-
-const generateRailCodeCandidates = (lineName: string): string[] => {
-    const normalized = lineName
-        .toUpperCase()
-        .replace(/&/g, " ")
-        .replace(/[^A-Z0-9/ -]/g, " ")
-        .replace(/\s+/g, " ")
-        .trim();
-    if (!normalized) return [];
-
-    const slashGroups = normalized.split("/").map((s) => s.trim()).filter(Boolean);
-    const wordGroups = slashGroups.map((group) => group.split(" ").filter(Boolean));
-    const words = wordGroups.flat();
-    const candidates: string[] = [];
-
-    for (const groupWords of wordGroups) {
-        if (groupWords[0]) candidates.push(groupWords[0].slice(0, 3));
-        if (groupWords.length > 1) {
-            candidates.push(groupWords[groupWords.length - 1].slice(0, 3));
-            candidates.push(
-                `${groupWords[0][0] ?? ""}${(groupWords[groupWords.length - 1] ?? "").slice(0, 2)}`,
-            );
-        }
-    }
-    if (words[0]) candidates.push(words[0].slice(0, 3));
-    if (words.length > 1) candidates.push(words[words.length - 1].slice(0, 3));
-    candidates.push(normalized.replace(/[^A-Z0-9]/g, "").slice(0, 3));
-    candidates.push(normalized.replace(/[^A-Z0-9]/g, "").slice(0, 5));
-
-    return unique(candidates.map((v) => v.replace(/[^A-Z0-9]/g, "").slice(0, 5)));
-};
-
-const candidateHasStops = async (code: string): Promise<boolean> => {
-    if (!code) return false;
-    const rows = await fetchRecords(
-        `${SEPTA_BASE}/Stops/index.php?req1=${encodeURIComponent(code)}`,
-    );
-    return rows.length > 0;
-};
-
-const resolveRailRouteCodeFromLine = async (lineName: string): Promise<string | null> => {
-    const candidates = generateRailCodeCandidates(lineName);
-    for (const candidate of candidates) {
-        try {
-            if (await candidateHasStops(candidate)) return candidate;
-        } catch {
-            // Ignore candidate failures and continue probing.
-        }
-    }
-    return null;
 };
 
 function extractSurfaceRoutesFromTransitViewAll(
@@ -236,25 +209,25 @@ export async function runSeptaSync(db: DbLike): Promise<{
         }
 
         const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
-        const railNames = new Map<string, string>();
+        const railLinesSeen = new Map<string, { code: string; displayName: string }>();
         for (const record of trainRows) {
             const longName = normalizeRailLineName(readField(record, ["line"]));
             if (isInvalidRailLineName(longName)) continue;
-            railNames.set(longName.toLowerCase(), longName);
-        }
-        for (const longName of railNames.values()) {
-            const routeId = await resolveRailRouteCodeFromLine(longName);
-            if (!routeId) {
-                errors.push(`No route code resolved for rail line: ${longName}`);
-                logger.warn({ line: longName }, "SEPTA sync could not resolve rail code");
+            const canonical = CANONICAL_RAIL_BY_LINE.get(normalizeRailLineKey(longName));
+            if (!canonical) {
+                errors.push(`No canonical rail code for line: ${longName}`);
+                logger.warn({ line: longName }, "SEPTA sync line not in canonical rail map");
                 continue;
             }
-            routeMap.set(`rail:${routeId}`, {
+            railLinesSeen.set(canonical.code, canonical);
+        }
+        for (const canonical of railLinesSeen.values()) {
+            routeMap.set(`rail:${canonical.code}`, {
                 mode: "rail",
-                id: routeId,
-                shortName: routeId,
-                longName,
-                displayName: longName,
+                id: canonical.code,
+                shortName: canonical.code,
+                longName: canonical.displayName,
+                displayName: canonical.displayName,
             });
         }
 
@@ -412,6 +385,63 @@ export async function runSeptaSync(db: DbLike): Promise<{
                             updatedAt: new Date().toISOString(),
                         },
                     });
+            }
+
+            // Remove legacy/non-canonical rail route ids so all rail rows use canonical codes.
+            const legacyRailRouteIds = [
+                "AIRPORT",
+                "CHESTNUT HILL EAST",
+                "CHESTNUT HILL WEST",
+                "FOX CHASE",
+                "MANAYUNK/NORRISTOWN",
+                "MEDIA/WAWA",
+                "PAOLI/THORNDALE",
+                "TRENTON",
+                "WARMINSTER",
+                "WEST TRENTON",
+                "WILMINGTON/NEWARK",
+            ];
+            for (const legacyId of legacyRailRouteIds) {
+                await tx
+                    .delete(septaRouteStops)
+                    .where(
+                        and(
+                            eq(septaRouteStops.mode, "rail"),
+                            eq(septaRouteStops.routeId, legacyId),
+                        ),
+                    );
+                await tx
+                    .delete(septaRoutes)
+                    .where(
+                        and(
+                            eq(septaRoutes.mode, "rail"),
+                            eq(septaRoutes.id, legacyId),
+                        ),
+                    );
+            }
+            // Delete any unexpected rail code rows outside the canonical list.
+            const rows = await tx
+                .select({ id: septaRoutes.id })
+                .from(septaRoutes)
+                .where(eq(septaRoutes.mode, "rail"));
+            for (const row of rows as Array<{ id: string }>) {
+                if (CANONICAL_RAIL_CODES.has(row.id)) continue;
+                await tx
+                    .delete(septaRouteStops)
+                    .where(
+                        and(
+                            eq(septaRouteStops.mode, "rail"),
+                            eq(septaRouteStops.routeId, row.id),
+                        ),
+                    );
+                await tx
+                    .delete(septaRoutes)
+                    .where(
+                        and(
+                            eq(septaRoutes.mode, "rail"),
+                            eq(septaRoutes.id, row.id),
+                        ),
+                    );
             }
         });
 
