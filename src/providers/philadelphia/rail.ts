@@ -5,6 +5,7 @@ import { resolveSeptaRailRouteAliases, resolveSeptaRailStopName } from "./stops_
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
 const ARRIVALS_RESULTS_LIMIT = 30;
+const SEPTA_DEBUG_FETCH = process.env.SEPTA_DEBUG_FETCH === "1";
 
 type SeptaArrival = {
     direction: "N" | "S";
@@ -135,6 +136,15 @@ const normalizeLineForMatch = (line?: string | null) =>
         .replace(/\s+LINE$/i, "")
         .replace(/\s+/g, " ");
 
+const compactArrival = (a: SeptaArrival) => ({
+    line: normalizeLine(a.line),
+    direction: a.direction,
+    destination: cleanDirectionLabel(a.destination) || cleanDirectionLabel(a.next_station) || "",
+    depart_time: a.depart_time ?? "",
+    sched_time: a.sched_time ?? "",
+    status: (a.status ?? "").trim(),
+});
+
 const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
     const stationRaw = params.stop || params.station || "";
@@ -175,6 +185,23 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const southRaw = body?.Southbound ?? [];
     const north = requestedLineAliases.length > 0 ? northRaw.filter((a) => matchesRequestedLine(a.line)) : northRaw;
     const south = requestedLineAliases.length > 0 ? southRaw.filter((a) => matchesRequestedLine(a.line)) : southRaw;
+    if (SEPTA_DEBUG_FETCH) {
+        console.log("[SEPTA rail] fetch", {
+            url,
+            stationRaw,
+            stationQuery: station,
+            stationKey: stationKey ?? "",
+            direction: direction ?? "",
+            requestedLine: requestedLineRaw || "",
+            requestedAliases: requestedLineAliases,
+            rawNorth: northRaw.length,
+            rawSouth: southRaw.length,
+            filteredNorth: north.length,
+            filteredSouth: south.length,
+            sampleNorth: northRaw.slice(0, 5).map(compactArrival),
+            sampleSouth: southRaw.slice(0, 5).map(compactArrival),
+        });
+    }
 
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
