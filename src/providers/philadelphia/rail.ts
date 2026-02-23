@@ -193,6 +193,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
             line: requestedLineRaw || normalizeLine(first?.line) || "SEPTA",
             stop: stationLabel,
             stopId: stationRaw,
+            stopName: stationLabel,
             direction: direction ?? first?.direction,
             directionLabel,
             destination,
