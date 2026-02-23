@@ -120,11 +120,11 @@ export async function runSeptaSync(db: DbLike): Promise<{
     const errors: string[] = [];
 
     try {
-        const busScheduleRows = await fetchRecords(`${SEPTA_BASE}/BusSchedules/index.php`);
-        for (const record of busScheduleRows) {
+        const surfaceRows = await fetchRecords(`${SEPTA_BASE}/TransitViewAll/index.php`);
+        for (const record of surfaceRows) {
             const routeRaw =
                 readField(record, ["route_id", "route", "line", "route_short_name"]) ||
-                readField(record, ["req1"]);
+                readField(record, ["line", "label", "route"]);
             const routeId = normalizeRouteId("bus", routeRaw);
             if (!routeId) continue;
             const mode = classifySurfaceMode(record, routeId);
@@ -139,8 +139,8 @@ export async function runSeptaSync(db: DbLike): Promise<{
             });
         }
 
-        const railScheduleRows = await fetchRecords(`${SEPTA_BASE}/RRSchedules/index.php`);
-        for (const record of railScheduleRows) {
+        const railRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
+        for (const record of railRows) {
             const routeRaw =
                 readField(record, ["route_id", "route", "line", "route_short_name"]) ||
                 readField(record, ["line"]);
