@@ -8,6 +8,7 @@ const SUPPORTED_PROVIDERS = new Set([
     "cta-subway",
     "septa-rail",
     "septa-bus",
+    "septa-trolley",
 ]);
 
 const clampArrivalsToDisplay = (value: unknown) => {

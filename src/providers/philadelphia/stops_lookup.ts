@@ -1,361 +1,425 @@
-import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 export type SeptaRouteOption = { id: string; label: string };
 export type SeptaStopOption = { stopId: string; stop: string };
 
-type Mode = "bus" | "rail";
+const SEPTA_BASE = "https://www3.septa.org/api";
+const CACHE_TTL_MS = 5 * 60_000;
 
-type SeptaCache = {
-    routes: SeptaRouteOption[];
-    routeLabelById: Map<string, string>;
-    routeAliasesById: Map<string, string[]>;
-    routeToStops: Map<string, string[]>;
-    stopToRoutes: Map<string, string[]>;
-    stopToRoutesByDirection: Map<string, string[]>;
-    stopNameById: Map<string, string>;
+const jsonCache = new Map<string, { expiresAt: number; value: unknown }>();
+
+const normalizeKey = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+const normalizeText = (value: string) => value.trim().toLowerCase();
+
+const normalizeRailRoute = (value: string) =>
+    value
+        .trim()
+        .toUpperCase()
+        .replace(/\s+LINE$/i, "")
+        .replace(/\s+/g, " ");
+
+const normalizeBusRoute = (value: string) =>
+    value
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, " ");
+
+const parseJsonSafe = (input: string): unknown => {
+    try {
+        return JSON.parse(input);
+    } catch {
+        return [];
+    }
 };
 
-const cacheByMode: Partial<Record<Mode, SeptaCache>> = {};
-
-function parseCsvLine(line: string): string[] {
-    const values: string[] = [];
-    let current = "";
-    let inQuotes = false;
-
-    for (let i = 0; i < line.length; i++) {
-        const ch = line[i];
-        if (ch === '"') {
-            if (inQuotes && line[i + 1] === '"') {
-                current += '"';
-                i++;
-            } else {
-                inQuotes = !inQuotes;
-            }
-            continue;
-        }
-
-        if (ch === "," && !inQuotes) {
-            values.push(current);
-            current = "";
-            continue;
-        }
-
-        current += ch;
+const toRecords = (input: unknown): Array<Record<string, unknown>> => {
+    if (Array.isArray(input)) {
+        return input.filter((v): v is Record<string, unknown> => !!v && typeof v === "object");
     }
+    if (!input || typeof input !== "object") return [];
+    const obj = input as Record<string, unknown>;
+    const out: Array<Record<string, unknown>> = [];
+    for (const value of Object.values(obj)) {
+        if (Array.isArray(value)) {
+            out.push(
+                ...value.filter((v): v is Record<string, unknown> => !!v && typeof v === "object"),
+            );
+        } else if (value && typeof value === "object") {
+            out.push(value as Record<string, unknown>);
+        }
+    }
+    if (out.length > 0) return out;
+    return [obj];
+};
 
-    values.push(current);
-    return values;
+const readField = (record: Record<string, unknown>, keys: string[]) => {
+    const wanted = new Set(keys.map(normalizeKey));
+    for (const [k, v] of Object.entries(record)) {
+        if (!wanted.has(normalizeKey(k))) continue;
+        if (typeof v === "string") return v.trim();
+        if (typeof v === "number") return String(v);
+    }
+    return "";
+};
+
+const dedupeRoutes = (routes: SeptaRouteOption[]) => {
+    const map = new Map<string, SeptaRouteOption>();
+    for (const route of routes) {
+        const id = route.id.trim();
+        if (!id) continue;
+        if (!map.has(id)) map.set(id, { id, label: route.label || id });
+    }
+    return Array.from(map.values()).sort((a, b) => a.id.localeCompare(b.id));
+};
+
+const dedupeStops = (stops: SeptaStopOption[]) => {
+    const map = new Map<string, SeptaStopOption>();
+    for (const stop of stops) {
+        const id = stop.stopId.trim();
+        if (!id) continue;
+        if (!map.has(id)) map.set(id, { stopId: id, stop: stop.stop || id });
+    }
+    return Array.from(map.values()).sort((a, b) => a.stop.localeCompare(b.stop));
+};
+
+const filterRoutes = (routes: SeptaRouteOption[], q: string, limit: number) => {
+    const needle = normalizeText(q);
+    const filtered =
+        needle.length > 0
+            ? routes.filter(
+                  (r) =>
+                      normalizeText(r.id).includes(needle) ||
+                      normalizeText(r.label).includes(needle),
+              )
+            : routes;
+    return filtered.slice(0, Math.max(1, limit));
+};
+
+const filterStops = (stops: SeptaStopOption[], q: string, limit: number) => {
+    const needle = normalizeText(q);
+    const filtered =
+        needle.length > 0
+            ? stops.filter(
+                  (s) =>
+                      normalizeText(s.stopId).includes(needle) ||
+                      normalizeText(s.stop).includes(needle),
+              )
+            : stops;
+    return filtered.slice(0, Math.max(1, limit));
+};
+
+async function fetchJsonCached(url: string): Promise<unknown> {
+    const hit = jsonCache.get(url);
+    if (hit && hit.expiresAt > Date.now()) return hit.value;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`SEPTA API error ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    const parsed = parseJsonSafe(text);
+    jsonCache.set(url, { expiresAt: Date.now() + CACHE_TTL_MS, value: parsed });
+    return parsed;
 }
 
-function findSeptaFile(mode: Mode, fileName: "routes.txt" | "stops.txt" | "route_stops.txt"): string | null {
-    const candidates = [
-        resolve(import.meta.dir, `../../../data/septa/${mode}/${fileName}`),
-        resolve(process.cwd(), `data/septa/${mode}/${fileName}`),
-    ];
-    for (const path of candidates) {
-        if (existsSync(path)) return path;
+async function fetchTransitViewAllRecords() {
+    const url = `${SEPTA_BASE}/TransitViewAll/index.php`;
+    const data = await fetchJsonCached(url);
+    return toRecords(data);
+}
+
+async function fetchTrainViewRecords() {
+    const url = `${SEPTA_BASE}/TrainView/index.php`;
+    const data = await fetchJsonCached(url);
+    return toRecords(data);
+}
+
+async function fetchBusScheduleRecords(route?: string) {
+    const search = new URLSearchParams();
+    if (route) search.set("req1", route);
+    const suffix = search.toString();
+    const url = `${SEPTA_BASE}/BusSchedules/index.php${suffix ? `?${suffix}` : ""}`;
+    const data = await fetchJsonCached(url);
+    return toRecords(data);
+}
+
+async function fetchRailScheduleRecords(route?: string) {
+    const search = new URLSearchParams();
+    if (route) search.set("req1", route);
+    const suffix = search.toString();
+    const url = `${SEPTA_BASE}/RRSchedules/index.php${suffix ? `?${suffix}` : ""}`;
+    const data = await fetchJsonCached(url);
+    return toRecords(data);
+}
+
+async function fetchStopsRecords(route: string) {
+    const search = new URLSearchParams({ req1: route });
+    const url = `${SEPTA_BASE}/Stops/index.php?${search.toString()}`;
+    const data = await fetchJsonCached(url);
+    return toRecords(data);
+}
+
+function parseRouteOptions(records: Array<Record<string, unknown>>, mode: "bus" | "rail"): SeptaRouteOption[] {
+    const idCandidates = ["route_id", "route", "line", "line_id", "route_short_name"];
+    const labelCandidates = ["route_long_name", "label", "line_name", "route_name", "line"];
+    const routes: SeptaRouteOption[] = [];
+    for (const record of records) {
+        const idRaw = readField(record, idCandidates);
+        if (!idRaw) continue;
+        const id = mode === "rail" ? normalizeRailRoute(idRaw) : normalizeBusRoute(idRaw);
+        if (!id) continue;
+        const labelRaw = readField(record, labelCandidates);
+        routes.push({ id, label: labelRaw || id });
+    }
+    return dedupeRoutes(routes);
+}
+
+function parseStopOptions(records: Array<Record<string, unknown>>): SeptaStopOption[] {
+    const idCandidates = ["stop_id", "stopid", "id", "stop_code"];
+    const nameCandidates = ["stop_name", "name", "stop", "station", "label"];
+    const stops: SeptaStopOption[] = [];
+    for (const record of records) {
+        const stopId = readField(record, idCandidates);
+        if (!stopId) continue;
+        const stop = readField(record, nameCandidates) || stopId;
+        stops.push({ stopId, stop });
+    }
+    return dedupeStops(stops);
+}
+
+async function fetchBusRoutesUnfiltered(): Promise<SeptaRouteOption[]> {
+    try {
+        const fromSchedules = parseRouteOptions(await fetchBusScheduleRecords(), "bus");
+        if (fromSchedules.length > 0) return fromSchedules;
+    } catch {
+        // fall through
+    }
+
+    try {
+        const fromTransit = parseRouteOptions(await fetchTransitViewAllRecords(), "bus");
+        if (fromTransit.length > 0) return fromTransit;
+    } catch {
+        // ignore
+    }
+
+    return [];
+}
+
+async function fetchRailRoutesUnfiltered(): Promise<SeptaRouteOption[]> {
+    try {
+        const fromSchedules = parseRouteOptions(await fetchRailScheduleRecords(), "rail");
+        if (fromSchedules.length > 0) return fromSchedules;
+    } catch {
+        // fall through
+    }
+
+    try {
+        const fromTrainView = parseRouteOptions(await fetchTrainViewRecords(), "rail");
+        if (fromTrainView.length > 0) return fromTrainView;
+    } catch {
+        // ignore
+    }
+
+    return [];
+}
+
+async function fetchBusStopsForRouteUnfiltered(route: string): Promise<SeptaStopOption[]> {
+    const routeId = normalizeBusRoute(route);
+    if (!routeId) return [];
+    try {
+        const fromStops = parseStopOptions(await fetchStopsRecords(routeId));
+        if (fromStops.length > 0) return fromStops;
+    } catch {
+        // ignore
+    }
+    try {
+        const fromSchedules = parseStopOptions(await fetchBusScheduleRecords(routeId));
+        if (fromSchedules.length > 0) return fromSchedules;
+    } catch {
+        // ignore
+    }
+    return [];
+}
+
+async function fetchRailStopsUnfiltered(): Promise<SeptaStopOption[]> {
+    const out: SeptaStopOption[] = [];
+    try {
+        const records = await fetchTrainViewRecords();
+        for (const record of records) {
+            for (const field of [
+                "currentstop",
+                "nextstop",
+                "origin",
+                "destination",
+                "source",
+                "dest",
+                "station",
+            ]) {
+                const value = readField(record, [field]);
+                if (!value) continue;
+                out.push({ stopId: value, stop: value });
+            }
+        }
+    } catch {
+        // ignore
+    }
+    if (out.length > 0) return dedupeStops(out);
+
+    try {
+        const fromSchedules = parseStopOptions(await fetchRailScheduleRecords());
+        if (fromSchedules.length > 0) return fromSchedules;
+    } catch {
+        // ignore
+    }
+    return [];
+}
+
+async function fetchRailStopsForRouteUnfiltered(route: string): Promise<SeptaStopOption[]> {
+    const routeId = normalizeRailRoute(route);
+    if (!routeId) return [];
+    try {
+        const fromSchedules = parseStopOptions(await fetchRailScheduleRecords(routeId));
+        if (fromSchedules.length > 0) return fromSchedules;
+    } catch {
+        // ignore
+    }
+    return fetchRailStopsUnfiltered();
+}
+
+async function fetchRailArrivalsLinesForStop(stopOrName: string): Promise<string[]> {
+    const station = resolveSeptaRailStopName(stopOrName);
+    if (!station) return [];
+    const search = new URLSearchParams({ station, results: "60" });
+    const url = `${SEPTA_BASE}/Arrivals/index.php?${search.toString()}`;
+    try {
+        const data = await fetchJsonCached(url);
+        if (!data || typeof data !== "object") return [];
+        const root = data as Record<string, unknown>;
+        const firstKey = Object.keys(root)[0];
+        if (!firstKey) return [];
+        const firstArray = root[firstKey];
+        if (!Array.isArray(firstArray) || firstArray.length === 0) return [];
+        const first = firstArray[0];
+        if (!first || typeof first !== "object") return [];
+        const body = first as Record<string, unknown>;
+        const lines = new Set<string>();
+        for (const dir of ["Northbound", "Southbound"]) {
+            const items = body[dir];
+            if (!Array.isArray(items)) continue;
+            for (const item of items) {
+                if (!item || typeof item !== "object") continue;
+                const line = readField(item as Record<string, unknown>, ["line"]);
+                const normalized = normalizeRailRoute(line);
+                if (normalized) lines.add(normalized);
+            }
+        }
+        return Array.from(lines).sort((a, b) => a.localeCompare(b));
+    } catch {
+        return [];
+    }
+}
+
+export async function listSeptaBusRoutes(q = "", limit = 300): Promise<SeptaRouteOption[]> {
+    return filterRoutes(await fetchBusRoutesUnfiltered(), q, limit);
+}
+
+export async function listSeptaRailRoutes(q = "", limit = 300): Promise<SeptaRouteOption[]> {
+    return filterRoutes(await fetchRailRoutesUnfiltered(), q, limit);
+}
+
+export async function listSeptaBusStopsForRoute(route: string, limit = 300): Promise<SeptaStopOption[]> {
+    return filterStops(await fetchBusStopsForRouteUnfiltered(route), "", limit);
+}
+
+export async function listSeptaRailStopsForRoute(route: string, limit = 300): Promise<SeptaStopOption[]> {
+    return filterStops(await fetchRailStopsForRouteUnfiltered(route), "", limit);
+}
+
+export async function listSeptaBusStops(q = "", limit = 300): Promise<SeptaStopOption[]> {
+    const routes = await fetchBusRoutesUnfiltered();
+    const topRoutes = routes.slice(0, 40);
+    const allStops = await Promise.all(topRoutes.map((r) => fetchBusStopsForRouteUnfiltered(r.id)));
+    return filterStops(dedupeStops(allStops.flat()), q, limit);
+}
+
+export async function listSeptaRailStops(q = "", limit = 300): Promise<SeptaStopOption[]> {
+    return filterStops(await fetchRailStopsUnfiltered(), q, limit);
+}
+
+export async function listSeptaBusLinesForStop(stopId: string): Promise<SeptaRouteOption[]> {
+    const normalizedStopId = stopId.trim();
+    if (!normalizedStopId) return [];
+    const routes = await fetchBusRoutesUnfiltered();
+    const topRoutes = routes.slice(0, 80);
+    const hits: SeptaRouteOption[] = [];
+    for (const route of topRoutes) {
+        const stops = await fetchBusStopsForRouteUnfiltered(route.id);
+        if (stops.some((s) => s.stopId === normalizedStopId)) {
+            hits.push(route);
+        }
+    }
+    return hits.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+export async function listSeptaRailLinesForStop(stopId: string): Promise<SeptaRouteOption[]> {
+    const lines = await fetchRailArrivalsLinesForStop(stopId);
+    return lines.map((id) => ({ id, label: id }));
+}
+
+export async function listSeptaRailLinesForStopByDirection(
+    stopId: string,
+    _direction: "N" | "S",
+): Promise<SeptaRouteOption[]> {
+    return listSeptaRailLinesForStop(stopId);
+}
+
+export function resolveSeptaRailStopName(stopOrName: string): string | null {
+    const value = stopOrName.trim();
+    return value.length > 0 ? value : null;
+}
+
+export function resolveSeptaRailStopId(stopOrName: string): string {
+    return stopOrName.trim();
+}
+
+export function resolveSeptaBusStopId(stopOrName: string): string {
+    return stopOrName.trim();
+}
+
+export async function resolveSeptaBusStopForRoute(
+    routeOrLabel: string,
+    stopOrName: string,
+): Promise<SeptaStopOption | null> {
+    const routeId = resolveSeptaBusRouteId(routeOrLabel);
+    const needle = stopOrName.trim();
+    if (!routeId || !needle) return null;
+    const stops = await fetchBusStopsForRouteUnfiltered(routeId);
+    const byId = stops.find((s) => s.stopId === needle);
+    if (byId) return byId;
+    const lower = needle.toLowerCase();
+    return stops.find((s) => s.stop.toLowerCase() === lower) ?? null;
+}
+
+export async function resolveSeptaBusStopName(stopOrName: string): Promise<string | null> {
+    const raw = stopOrName.trim();
+    if (!raw) return null;
+    const routes = await fetchBusRoutesUnfiltered();
+    const topRoutes = routes.slice(0, 30);
+    for (const route of topRoutes) {
+        const match = await resolveSeptaBusStopForRoute(route.id, raw);
+        if (match) return match.stop;
     }
     return null;
 }
 
-function loadRows(path: string): string[][] {
-    const lines = readFileSync(path, "utf8").split(/\r?\n/).filter((line) => line.length > 0);
-    if (lines.length === 0) return [];
-    return lines.map(parseCsvLine);
-}
-
-function buildCache(mode: Mode): SeptaCache {
-    const routeStopsPath = findSeptaFile(mode, "route_stops.txt");
-    const routesPath = findSeptaFile(mode, "routes.txt");
-    const stopsPath = findSeptaFile(mode, "stops.txt");
-
-    if (!routeStopsPath || !routesPath || !stopsPath) {
-        return {
-            routes: [],
-            routeLabelById: new Map(),
-            routeAliasesById: new Map(),
-            routeToStops: new Map(),
-            stopToRoutes: new Map(),
-            stopToRoutesByDirection: new Map(),
-            stopNameById: new Map(),
-        };
-    }
-
-    const routeStopsRows = loadRows(routeStopsPath);
-    const routesRows = loadRows(routesPath);
-    const stopsRows = loadRows(stopsPath);
-    if (routeStopsRows.length === 0 || routesRows.length === 0 || stopsRows.length === 0) {
-        return {
-            routes: [],
-            routeLabelById: new Map(),
-            routeAliasesById: new Map(),
-            routeToStops: new Map(),
-            stopToRoutes: new Map(),
-            stopToRoutesByDirection: new Map(),
-            stopNameById: new Map(),
-        };
-    }
-
-    const routeStopsHeader = routeStopsRows[0];
-    const routesHeader = routesRows[0];
-    const stopsHeader = stopsRows[0];
-    if (!routeStopsHeader || !routesHeader || !stopsHeader) {
-        return {
-            routes: [],
-            routeLabelById: new Map(),
-            routeAliasesById: new Map(),
-            routeToStops: new Map(),
-            stopToRoutes: new Map(),
-            stopToRoutesByDirection: new Map(),
-            stopNameById: new Map(),
-        };
-    }
-
-    const routeIdIdx = routeStopsHeader.indexOf("route_id");
-    const stopIdIdx = routeStopsHeader.indexOf("stop_id");
-    const directionIdIdx = routeStopsHeader.indexOf("direction_id");
-    const routesRouteIdIdx = routesHeader.indexOf("route_id");
-    const shortNameIdx = routesHeader.indexOf("route_short_name");
-    const longNameIdx = routesHeader.indexOf("route_long_name");
-    const stopsStopIdIdx = stopsHeader.indexOf("stop_id");
-    const stopNameIdx = stopsHeader.indexOf("stop_name");
-
-    const routeToStops = new Map<string, string[]>();
-    const routeToStopSet = new Map<string, Set<string>>();
-    const stopToRouteSetByDirection = new Map<string, Set<string>>();
-    const directionIdToCardinal = (value: string) => {
-        const v = value.trim();
-        if (mode === "rail") {
-            if (v === "0") return "N";
-            if (v === "1") return "S";
-        }
-        return "";
-    };
-    for (let i = 1; i < routeStopsRows.length; i++) {
-        const row = routeStopsRows[i];
-        if (!row) continue;
-        const routeId = row[routeIdIdx]?.trim() ?? "";
-        const stopId = row[stopIdIdx]?.trim() ?? "";
-        if (!routeId || !stopId) continue;
-        if (!routeToStopSet.has(routeId)) routeToStopSet.set(routeId, new Set());
-        routeToStopSet.get(routeId)!.add(stopId);
-        if (directionIdIdx >= 0) {
-            const cardinal = directionIdToCardinal(row[directionIdIdx] ?? "");
-            if (cardinal) {
-                const key = `${stopId}:${cardinal}`;
-                if (!stopToRouteSetByDirection.has(key)) stopToRouteSetByDirection.set(key, new Set());
-                stopToRouteSetByDirection.get(key)!.add(routeId);
-            }
-        }
-    }
-    for (const [routeId, set] of routeToStopSet.entries()) {
-        routeToStops.set(routeId, Array.from(set));
-    }
-
-    const stopToRouteSet = new Map<string, Set<string>>();
-    for (const [routeId, stopIds] of routeToStops.entries()) {
-        for (const stopId of stopIds) {
-            if (!stopToRouteSet.has(stopId)) stopToRouteSet.set(stopId, new Set());
-            stopToRouteSet.get(stopId)!.add(routeId);
-        }
-    }
-
-    const stopNameById = new Map<string, string>();
-    for (let i = 1; i < stopsRows.length; i++) {
-        const row = stopsRows[i];
-        if (!row) continue;
-        const stopId = row[stopsStopIdIdx]?.trim() ?? "";
-        const stopName = row[stopNameIdx]?.trim() ?? "";
-        if (!stopId) continue;
-        stopNameById.set(stopId, stopName || stopId);
-    }
-
-    const routeLabelById = new Map<string, string>();
-    const routeAliasesById = new Map<string, string[]>();
-    const normalizeRouteAlias = (value: string) =>
-        value
-            .trim()
-            .toUpperCase()
-            .replace(/\s+LINE$/i, "")
-            .replace(/\s+/g, " ");
-    for (let i = 1; i < routesRows.length; i++) {
-        const row = routesRows[i];
-        if (!row) continue;
-        const routeId = row[routesRouteIdIdx]?.trim() ?? "";
-        if (!routeId) continue;
-        const shortName = row[shortNameIdx]?.trim() ?? "";
-        const longName = row[longNameIdx]?.trim() ?? "";
-        routeLabelById.set(routeId, shortName || longName || routeId);
-        const aliases = new Set<string>();
-        aliases.add(routeId);
-        if (shortName) aliases.add(shortName);
-        if (longName) aliases.add(longName);
-        if (longName.toLowerCase().endsWith(" line")) {
-            aliases.add(longName.slice(0, -5));
-        }
-        routeAliasesById.set(
-            routeId,
-            Array.from(aliases)
-                .map(normalizeRouteAlias)
-                .filter((v) => v.length > 0),
-        );
-    }
-
-    const routes = Array.from(routeToStops.keys())
-        .map((id) => ({ id, label: routeLabelById.get(id) ?? id }))
-        .sort((a, b) => a.id.localeCompare(b.id));
-    const stopToRoutes = new Map<string, string[]>();
-    for (const [stopId, routeSet] of stopToRouteSet.entries()) {
-        stopToRoutes.set(stopId, Array.from(routeSet).sort((a, b) => a.localeCompare(b)));
-    }
-    const stopToRoutesByDirection = new Map<string, string[]>();
-    for (const [key, routeSet] of stopToRouteSetByDirection.entries()) {
-        stopToRoutesByDirection.set(key, Array.from(routeSet).sort((a, b) => a.localeCompare(b)));
-    }
-
-    return { routes, routeLabelById, routeAliasesById, routeToStops, stopToRoutes, stopToRoutesByDirection, stopNameById };
-}
-
-function getCache(mode: Mode): SeptaCache {
-    if (!cacheByMode[mode]) {
-        cacheByMode[mode] = buildCache(mode);
-    }
-    return cacheByMode[mode]!;
-}
-
-function queryRoutes(mode: Mode, q: string, limit: number): SeptaRouteOption[] {
-    const needle = q.trim().toLowerCase();
-    let routes = getCache(mode).routes;
-    if (needle.length > 0) {
-        routes = routes.filter((route) => route.id.toLowerCase().includes(needle) || route.label.toLowerCase().includes(needle));
-    }
-    return routes.slice(0, limit);
-}
-
-function queryStopsForRoute(mode: Mode, route: string, limit: number): SeptaStopOption[] {
-    const routeId = route.trim();
-    if (!routeId) return [];
-    const cache = getCache(mode);
-    const stopIds = cache.routeToStops.get(routeId) ?? [];
-    return stopIds.slice(0, limit).map((stopId) => ({ stopId, stop: cache.stopNameById.get(stopId) ?? stopId }));
-}
-
-function queryStops(mode: Mode, q: string, limit: number): SeptaStopOption[] {
-    const needle = q.trim().toLowerCase();
-    let stops = Array.from(getCache(mode).stopNameById.entries()).map(([stopId, stop]) => ({ stopId, stop }));
-    if (needle.length > 0) {
-        stops = stops.filter((s) => s.stop.toLowerCase().includes(needle) || s.stopId.toLowerCase().includes(needle));
-    }
-    stops.sort((a, b) => a.stop.localeCompare(b.stop));
-    return stops.slice(0, limit);
-}
-
-function queryLinesForStop(mode: Mode, stopId: string): SeptaRouteOption[] {
-    const normalizedStopId = stopId.trim();
-    if (!normalizedStopId) return [];
-    const cache = getCache(mode);
-    const routeIds = cache.stopToRoutes.get(normalizedStopId) ?? [];
-    return routeIds.map((id) => ({ id, label: cache.routeLabelById.get(id) ?? id }));
-}
-
-export function listSeptaBusRoutes(q = "", limit = 300): SeptaRouteOption[] {
-    return queryRoutes("bus", q, limit);
-}
-
-export function listSeptaRailRoutes(q = "", limit = 300): SeptaRouteOption[] {
-    return queryRoutes("rail", q, limit);
-}
-
-export function listSeptaBusStopsForRoute(route: string, limit = 300): SeptaStopOption[] {
-    return queryStopsForRoute("bus", route, limit);
-}
-
-export function listSeptaRailStopsForRoute(route: string, limit = 300): SeptaStopOption[] {
-    return queryStopsForRoute("rail", route, limit);
-}
-
-export function listSeptaBusStops(q = "", limit = 300): SeptaStopOption[] {
-    return queryStops("bus", q, limit);
-}
-
-export function listSeptaRailStops(q = "", limit = 300): SeptaStopOption[] {
-    return queryStops("rail", q, limit);
-}
-
-export function listSeptaBusLinesForStop(stopId: string): SeptaRouteOption[] {
-    return queryLinesForStop("bus", stopId);
-}
-
-export function listSeptaRailLinesForStop(stopId: string): SeptaRouteOption[] {
-    return queryLinesForStop("rail", stopId);
-}
-
-export function listSeptaRailLinesForStopByDirection(stopId: string, direction: "N" | "S"): SeptaRouteOption[] {
-    const normalizedStopId = stopId.trim();
-    if (!normalizedStopId) return [];
-    const cache = getCache("rail");
-    const routeIds = cache.stopToRoutesByDirection.get(`${normalizedStopId}:${direction}`) ?? [];
-    return routeIds.map((id) => ({ id, label: cache.routeLabelById.get(id) ?? id }));
-}
-
-export function resolveSeptaRailStopName(stopOrName: string): string | null {
-    const raw = stopOrName.trim();
-    if (!raw) return null;
-    const cache = getCache("rail");
-    if (cache.stopNameById.has(raw)) {
-        return cache.stopNameById.get(raw) ?? null;
-    }
-    return raw;
+export function resolveSeptaBusRouteId(routeOrLabel: string): string {
+    return normalizeBusRoute(routeOrLabel);
 }
 
 export function resolveSeptaRailRouteAliases(routeOrLabel: string): string[] {
-    const raw = routeOrLabel.trim();
-    if (!raw) return [];
-    const cache = getCache("rail");
-    const normalized = raw
-        .toUpperCase()
-        .replace(/\s+LINE$/i, "")
-        .replace(/\s+/g, " ");
-
-    if (cache.routeAliasesById.has(normalized)) {
-        return cache.routeAliasesById.get(normalized) ?? [normalized];
-    }
-
-    for (const aliases of cache.routeAliasesById.values()) {
-        if (aliases.includes(normalized)) {
-            return aliases;
-        }
-    }
-
-    return [normalized];
+    const normalized = normalizeRailRoute(routeOrLabel);
+    return normalized ? [normalized] : [];
 }
 
 export function resolveSeptaRailRouteId(routeOrLabel: string): string {
-    const raw = routeOrLabel.trim();
-    if (!raw) return "";
-    const cache = getCache("rail");
-    const normalized = raw
-        .toUpperCase()
-        .replace(/\s+LINE$/i, "")
-        .replace(/\s+/g, " ");
-
-    if (cache.routeAliasesById.has(normalized)) {
-        return normalized;
-    }
-
-    for (const [routeId, aliases] of cache.routeAliasesById.entries()) {
-        if (aliases.includes(normalized)) {
-            return routeId;
-        }
-    }
-
-    return normalized;
+    return normalizeRailRoute(routeOrLabel);
 }
 
 export function resolveSeptaRailRouteLabel(routeOrId: string): string {
-    const routeId = resolveSeptaRailRouteId(routeOrId);
-    if (!routeId) return "";
-    const cache = getCache("rail");
-    return cache.routeLabelById.get(routeId) ?? routeId;
+    return resolveSeptaRailRouteId(routeOrId);
 }

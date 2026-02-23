@@ -3,20 +3,19 @@ import type { dependency } from "../types/dependency.d.ts";
 import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
 import { listCtaSubwayLines, listCtaSubwayLinesForStop, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
+import { buildKey, providerRegistry } from "../providers/index.ts";
 import {
-    listSeptaBusLinesForStop,
-    listSeptaBusRoutes,
-    listSeptaBusStops,
-    listSeptaBusStopsForRoute,
-    listSeptaRailLinesForStop,
-    listSeptaRailLinesForStopByDirection,
-    listSeptaRailRoutes,
-    listSeptaRailStops,
-    listSeptaRailStopsForRoute,
-    resolveSeptaRailStopName,
-} from "../providers/philadelphia/stops_lookup.ts";
+    getStop,
+    listLinesForStop as listSeptaLinesForStop,
+    listRoutes as listSeptaRoutes,
+    listStops as listSeptaStops,
+    normalizeDirection,
+    normalizeRouteId,
+    normalizeSeptaMode,
+    type SeptaMode,
+} from "../septa/catalog.ts";
 
-export function registerStops(app: Hono, _deps: dependency) {
+export function registerStops(app: Hono, deps: dependency) {
     type MbtaStop = {
         id: string;
         name: string;
@@ -200,127 +199,133 @@ export function registerStops(app: Hono, _deps: dependency) {
         return c.json({ count: result.stops.length, stops: result.stops });
     });
 
-    // SEPTA rail stops (route optional; when omitted returns all stations)
-    app.get("/providers/philly/stops/rail", (c) => {
-        const route = (c.req.query("route") ?? "").trim();
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const stops =
-            route.length > 0 ? listSeptaRailStopsForRoute(route, limit) : listSeptaRailStops(q, limit);
-        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: mapped.length, stops: mapped });
-    });
+    const resolvePhillyModeParam = (raw: string): SeptaMode | null => {
+        const mode = normalizeSeptaMode(raw);
+        return mode;
+    };
 
-    // SEPTA train stops alias (same as rail)
-    app.get("/providers/philly/stops/train", (c) => {
-        const route = (c.req.query("route") ?? "").trim();
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const stops =
-            route.length > 0 ? listSeptaRailStopsForRoute(route, limit) : listSeptaRailStops(q, limit);
-        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: mapped.length, stops: mapped });
-    });
+    const registerPhillyRoutes = (path: string, modeRaw: string) => {
+        app.get(path, async (c) => {
+            const mode = resolvePhillyModeParam(modeRaw);
+            if (!mode) return c.json({ error: "Invalid mode" }, 400);
+            const q = (c.req.query("q") ?? "").trim();
+            const limit = parseLimit(c.req.query("limit"), 300, 1000);
+            const routes = await listSeptaRoutes(deps.db, mode, q, limit);
+            return c.json({ count: routes.length, routes });
+        });
+    };
 
-    // SEPTA bus/trolley stops (route optional; when omitted returns all stops)
-    app.get("/providers/philly/stops/bus", (c) => {
-        const route = (c.req.query("route") ?? "").trim();
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const stops =
-            route.length > 0 ? listSeptaBusStopsForRoute(route, limit) : listSeptaBusStops(q, limit);
-        const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop }));
-        return c.json({ count: mapped.length, stops: mapped });
-    });
+    const registerPhillyStops = (path: string, modeRaw: string) => {
+        app.get(path, async (c) => {
+            const mode = resolvePhillyModeParam(modeRaw);
+            if (!mode) return c.json({ error: "Invalid mode" }, 400);
+            const route = (c.req.query("route") ?? "").trim();
+            const q = (c.req.query("q") ?? "").trim();
+            const limit = parseLimit(c.req.query("limit"), 300, 1000);
+            const stops = await listSeptaStops(deps.db, mode, {
+                routeId: route || undefined,
+                q,
+                limit,
+            });
+            const mapped = stops.map((s) => ({ id: s.stopId, name: s.stop, stopId: s.stopId, stop: s.stop }));
+            return c.json({ count: mapped.length, stops: mapped });
+        });
+    };
 
-    // SEPTA lines by selected stop (station-first flow)
-    app.get("/providers/philly/stops/train/:stopId/lines", async (c) => {
-        const stopId = (c.req.param("stopId") ?? "").trim();
-        if (!stopId) return c.json({ error: "stopId is required" }, 400);
-        const directionRaw = (c.req.query("direction") ?? "").trim().toUpperCase();
-        const direction = directionRaw === "N" || directionRaw === "S" ? directionRaw : "";
-        const directionScoped =
-            direction === "N" || direction === "S"
-                ? listSeptaRailLinesForStopByDirection(stopId, direction).map((line) => line.id)
+    const registerPhillyLinesForStop = (path: string, modeRaw: string) => {
+        app.get(path, async (c) => {
+            const mode = resolvePhillyModeParam(modeRaw);
+            if (!mode) return c.json({ error: "Invalid mode" }, 400);
+            const stopId = (c.req.param("stopId") ?? "").trim();
+            if (!stopId) return c.json({ error: "stopId is required" }, 400);
+            const direction = normalizeDirection(mode, c.req.query("direction"));
+            const lines = await listSeptaLinesForStop(
+                deps.db,
+                mode,
+                stopId,
+                direction || undefined,
+            );
+            return c.json({
+                stopId,
+                direction: direction || null,
+                lines,
+            });
+        });
+    };
+
+    registerPhillyStops("/providers/philly/stops/rail", "rail");
+    registerPhillyStops("/providers/philly/stops/train", "rail");
+    registerPhillyStops("/providers/philly/stops/bus", "bus");
+    registerPhillyStops("/providers/philly/stops/trolley", "trolley");
+
+    registerPhillyLinesForStop("/providers/philly/stops/rail/:stopId/lines", "rail");
+    registerPhillyLinesForStop("/providers/philly/stops/train/:stopId/lines", "rail");
+    registerPhillyLinesForStop("/providers/philly/stops/bus/:stopId/lines", "bus");
+    registerPhillyLinesForStop("/providers/philly/stops/trolley/:stopId/lines", "trolley");
+
+    registerPhillyRoutes("/providers/philly/routes/rail", "rail");
+    registerPhillyRoutes("/providers/philly/routes/train", "rail");
+    registerPhillyRoutes("/providers/philly/routes/bus", "bus");
+    registerPhillyRoutes("/providers/philly/routes/trolley", "trolley");
+
+    app.get("/providers/philly/arrivals", async (c) => {
+        const mode = resolvePhillyModeParam(c.req.query("mode") ?? "");
+        if (!mode) return c.json({ error: "mode is required (rail|bus|trolley)" }, 400);
+        const lineRaw = (c.req.query("line") ?? "").trim();
+        const stopId = (c.req.query("stopId") ?? "").trim();
+        const direction = normalizeDirection(mode, c.req.query("direction"));
+        const limit = parseLimit(c.req.query("limit"), 3, 10);
+        if (!lineRaw || !stopId) return c.json({ error: "line and stopId are required" }, 400);
+        if (!direction) return c.json({ error: "direction is required" }, 400);
+
+        const line = normalizeRouteId(mode, lineRaw);
+        const providerId =
+            mode === "rail"
+                ? "septa-rail"
+                : mode === "trolley"
+                  ? "septa-trolley"
+                  : "septa-bus";
+        const provider = providerRegistry.get(providerId);
+        if (!provider) return c.json({ error: "provider not available" }, 500);
+
+        let stopParam = stopId;
+        if (mode === "rail") {
+            const stop = await getStop(deps.db, mode, stopId);
+            if (!stop) return c.json({ error: "Stop not found" }, 404);
+            stopParam = stop.name;
+        }
+
+        const key = buildKey(providerId, "arrivals", {
+            line,
+            stop: stopParam,
+            direction,
+        });
+
+        try {
+            const result = await provider.fetch(key, {
+                now: Date.now(),
+                key,
+                log: () => undefined,
+            });
+            const payload =
+                result.payload && typeof result.payload === "object"
+                    ? (result.payload as Record<string, unknown>)
+                    : {};
+            const arrivals = Array.isArray(payload.arrivals)
+                ? payload.arrivals.slice(0, limit)
                 : [];
-        if (directionScoped.length > 0) {
-            return c.json({ stopId, direction: direction || null, lines: directionScoped, source: "static-direction" });
+            return c.json({
+                mode,
+                provider: providerId,
+                line,
+                stopId,
+                direction,
+                arrivals,
+                raw: payload,
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "Failed to fetch arrivals";
+            return c.json({ error: message }, 502);
         }
-
-        const lines = listSeptaRailLinesForStop(stopId).map((line) => line.id);
-        return c.json({ stopId, direction: direction || null, lines, source: "static-all" });
-    });
-
-    app.get("/providers/philly/stops/rail/:stopId/lines", (c) => {
-        const stopId = (c.req.param("stopId") ?? "").trim();
-        if (!stopId) return c.json({ error: "stopId is required" }, 400);
-        const lines = listSeptaRailLinesForStop(stopId).map((line) => line.id);
-        return c.json({ stopId, lines });
-    });
-
-    app.get("/providers/philly/stops/bus/:stopId/lines", (c) => {
-        const stopId = (c.req.param("stopId") ?? "").trim();
-        if (!stopId) return c.json({ error: "stopId is required" }, 400);
-        const lines = listSeptaBusLinesForStop(stopId).map((line) => line.id);
-        return c.json({ stopId, lines });
-    });
-
-    // SEPTA rail routes (GTFS static)
-    app.get("/providers/philly/routes/rail", (c) => {
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const routes = listSeptaRailRoutes(q, limit);
-        return c.json({ count: routes.length, routes });
-    });
-
-    // SEPTA train routes alias (same as rail)
-    app.get("/providers/philly/routes/train", (c) => {
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const routes = listSeptaRailRoutes(q, limit);
-        return c.json({ count: routes.length, routes });
-    });
-
-    // SEPTA bus/trolley routes (GTFS static)
-    app.get("/providers/philly/routes/bus", (c) => {
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        const routes = listSeptaBusRoutes(q, limit);
-        return c.json({ count: routes.length, routes });
-    });
-
-    // SEPTA debug: raw Arrivals API payload for frontend inspection
-    app.get("/providers/philly/debug/arrivals", async (c) => {
-        const stationInput = (c.req.query("station") ?? c.req.query("stop") ?? "").trim();
-        if (!stationInput) {
-            return c.json({ error: "station (or stop) is required" }, 400);
-        }
-
-        const station = resolveSeptaRailStopName(stationInput) ?? stationInput;
-        const directionRaw = (c.req.query("direction") ?? "").trim().toUpperCase();
-        const direction = directionRaw === "N" || directionRaw === "S" ? directionRaw : "";
-        const results = parseLimit(c.req.query("results"), 30, 100);
-
-        const search = new URLSearchParams({
-            station,
-            results: String(results),
-        });
-        if (direction) search.set("direction", direction);
-
-        const url = `https://www3.septa.org/api/Arrivals/index.php?${search.toString()}`;
-        const res = await fetch(url);
-        if (!res.ok) {
-            return c.json({ error: `SEPTA Arrivals error ${res.status} ${res.statusText}`, url }, 502);
-        }
-
-        const raw = await res.json();
-        return c.json({
-            requestedAt: new Date().toISOString(),
-            stationInput,
-            stationResolved: station,
-            direction: direction || null,
-            url,
-            raw,
-        });
     });
 }

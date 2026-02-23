@@ -3,7 +3,6 @@ import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
-import { readFileSync } from "node:fs";
 
 const TRIP_FEED_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
 const TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
@@ -33,86 +32,6 @@ type PrintTripUpdate = {
         delaySeconds?: number;
     }>;
 };
-
-const loadStopNames = (() => {
-    let map: Map<string, string> | null = null;
-    return () => {
-        if (map) return map;
-        map = new Map<string, string>();
-        try {
-            const csv = readFileSync("data/septa/bus/stops.txt", "utf8").split(/\r?\n/);
-            const header = csv.shift()?.split(",") ?? [];
-            const idIdx = header.indexOf("stop_id");
-            const nameIdx = header.indexOf("stop_name");
-            for (const line of csv) {
-                if (!line) continue;
-                const cols = line.split(",");
-                const id = cols[idIdx]?.trim();
-                const name = cols[nameIdx]?.trim();
-                if (id) map.set(id, name ?? id);
-            }
-        } catch {
-            // ignore
-        }
-        return map;
-    };
-})();
-
-const loadTripHeadsigns = (() => {
-    let map: Map<string, string> | null = null;
-    return () => {
-        if (map) return map;
-        map = new Map<string, string>();
-        try {
-            const csv = readFileSync("data/septa/bus/trips.txt", "utf8").split(/\r?\n/);
-            const header = csv.shift()?.split(",") ?? [];
-            const tripIdIdx = header.indexOf("trip_id");
-            const headsignIdx = header.indexOf("trip_headsign");
-            if (tripIdIdx >= 0 && headsignIdx >= 0) {
-                for (const line of csv) {
-                    if (!line) continue;
-                    const cols = line.split(",");
-                    const tripId = cols[tripIdIdx]?.trim();
-                    const headsign = cols[headsignIdx]?.trim();
-                    if (tripId && headsign) map.set(tripId, headsign);
-                }
-            }
-        } catch {
-            // ignore
-        }
-        return map;
-    };
-})();
-
-const loadDirectionDestinations = (() => {
-    let map: Map<string, string> | null = null;
-    return () => {
-        if (map) return map;
-        map = new Map<string, string>();
-        try {
-            const csv = readFileSync("data/septa/bus/directions.txt", "utf8").split(/\r?\n/);
-            const header = csv.shift()?.split(",") ?? [];
-            const routeIdIdx = header.indexOf("route_id");
-            const directionIdIdx = header.indexOf("direction_id");
-            const directionDestinationIdx = header.indexOf("direction_destination");
-            if (routeIdIdx >= 0 && directionIdIdx >= 0 && directionDestinationIdx >= 0) {
-                for (const line of csv) {
-                    if (!line) continue;
-                    const cols = line.split(",");
-                    const routeId = cols[routeIdIdx]?.trim();
-                    const directionId = cols[directionIdIdx]?.trim();
-                    const directionDestination = cols[directionDestinationIdx]?.trim();
-                    if (routeId && directionId && directionDestination) {
-                        map.set(`${routeId}:${directionId}`, directionDestination);
-                    }
-                }
-            }
-        } catch {
-            // ignore
-        }
-        return map;
-    };
-})();
 
 const fetchFeed = async (now: number) => {
     const cachedBuf = await getProviderCacheBuffer(FEED_CACHE_KEY);
@@ -199,9 +118,6 @@ const pickArrivalsFromPrint = (
     const stop = filters.stop?.trim();
     const direction = filters.direction?.trim();
     const out: NormalizedArrival[] = [];
-    const headsigns = loadTripHeadsigns();
-    const directionDestinations = loadDirectionDestinations();
-
     for (const item of parseTripPrintUpdates(snapshot)) {
         if (route && item.routeId?.trim() !== route) continue;
         if (direction && item.directionId?.trim() !== direction) continue;
@@ -212,11 +128,6 @@ const pickArrivalsFromPrint = (
             if (!ts || !Number.isFinite(ts)) continue;
             if (ts < nowMs - 15_000) continue;
 
-            const destinationFromTrips = item.tripId ? headsigns.get(item.tripId) : undefined;
-            const destinationFromDirection =
-                item.routeId && (item.directionId === "0" || item.directionId === "1")
-                    ? directionDestinations.get(`${item.routeId}:${item.directionId}`)
-                    : undefined;
             out.push({
                 arrivalTime: new Date(ts).toISOString(),
                 scheduledTime:
@@ -224,7 +135,7 @@ const pickArrivalsFromPrint = (
                         ? new Date(ts - arrival.delaySeconds * 1000).toISOString()
                         : null,
                 delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : null,
-                destination: destinationFromTrips ?? destinationFromDirection,
+                destination: undefined,
             });
         }
     }
@@ -287,16 +198,8 @@ const pickArrivals = (
                 directionId?: number;
                 tripHeadsign?: string;
             };
-            const tripId = trip?.tripId?.trim();
-            const routeId = trip?.routeId?.trim();
-            const directionId = trip?.directionId;
             const destinationFromTrip = (trip?.tripHeadsign ?? "").trim() || undefined;
-            const destinationFromTrips = tripId ? loadTripHeadsigns().get(tripId) : undefined;
-            const destinationFromDirection =
-                routeId && (directionId === 0 || directionId === 1)
-                    ? loadDirectionDestinations().get(`${routeId}:${directionId}`)
-                    : undefined;
-            const destination = destinationFromTrip ?? destinationFromTrips ?? destinationFromDirection;
+            const destination = destinationFromTrip;
             arrivals.push({
                 arrivalTime: new Date(arrivalEpochMs).toISOString(),
                 scheduledTime: scheduledEpochMs ? new Date(scheduledEpochMs).toISOString() : null,
@@ -323,10 +226,17 @@ const pickArrivals = (
         .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
 };
 
-const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchResult> => {
+const normalizeRoute = (value?: string | null) =>
+    (value ?? "").trim().toUpperCase().replace(/\s+/g, " ");
+
+export const fetchSeptaSurfaceArrivals = async (
+    key: string,
+    ctx: FetchContext,
+    providerId = "septa-bus",
+): Promise<FetchResult> => {
     const { params } = parseKeySegments(key);
-    const route = params.line;
-    const stop = params.stop;
+    const route = normalizeRoute(params.line ?? "");
+    const stop = (params.stop ?? "").trim();
     const direction = normalizeDirection(params.direction);
     if (!route) throw new Error("SEPTA bus route is required (line=<routeId>)");
     if (!stop) throw new Error("SEPTA bus stop is required (stop=<stopId>)");
@@ -335,10 +245,6 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
     try {
         const feed = await fetchFeed(ctx.now);
         arrivals = pickArrivals(feed, { route, stop, direction }, ctx.now);
-        // Fallback: if nothing matched with the stop filter, retry without stop to avoid over-filtering.
-        if (!arrivals.length && stop) {
-            arrivals = pickArrivals(feed, { route, stop: undefined, direction }, ctx.now);
-        }
     } catch {
         // Fall through to print.php snapshot fallback.
     }
@@ -347,20 +253,16 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
         try {
             const snapshot = await fetchPrintSnapshot();
             arrivals = pickArrivalsFromPrint(snapshot, { route, stop, direction }, ctx.now);
-            if (!arrivals.length && stop) {
-                arrivals = pickArrivalsFromPrint(snapshot, { route, stop: undefined, direction }, ctx.now);
-            }
         } catch {
             // Keep empty arrivals.
         }
     }
-    const stopNames = loadStopNames();
-    const stopName = stopNames.get(stop);
+    const stopName = stop;
     const destination = arrivals.find((a) => typeof a.destination === "string" && a.destination.length > 0)?.destination;
 
     return {
         payload: {
-            provider: "septa-bus",
+            provider: providerId,
             line: route,
             stop: stopName ?? stop,
             stopId: stop,
@@ -380,7 +282,8 @@ export const septaBusProvider: ProviderPlugin = {
     supports: (type: string) => type === "arrivals",
     toKey: ({ type, config }) => buildKey("septa-bus", type, config),
     parseKey: (key: string) => parseKeySegments(key),
-    fetch: (key: string, ctx: FetchContext) => fetchSeptaBusArrivals(key, ctx),
+    fetch: (key: string, ctx: FetchContext) =>
+        fetchSeptaSurfaceArrivals(key, ctx, "septa-bus"),
 };
 
 registerProvider(septaBusProvider);
