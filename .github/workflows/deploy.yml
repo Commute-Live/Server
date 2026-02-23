@@ -8,6 +8,7 @@ jobs:
   deploy-production:
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    environment: production
     steps:
       - name: Deploy production via SSH
         uses: appleboy/ssh-action@v1.0.3

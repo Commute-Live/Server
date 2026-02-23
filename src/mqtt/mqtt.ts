@@ -1,4 +1,5 @@
 import mqtt, { type MqttClient } from "mqtt";
+import { metrics } from "../metrics.ts";
 
 let client: MqttClient | null = null;
 let isConfigured = false;
@@ -67,6 +68,17 @@ const getDebugTopics = () => {
         .filter(Boolean);
 };
 
+const SYS_TOPIC_TO_METRIC: Record<string, string> = {
+    "$SYS/broker/clients/connected": "mosquitto.clients.connected",
+    "$SYS/broker/subscriptions/count": "mosquitto.subscriptions.count",
+    "$SYS/broker/publish/messages/sent": "mosquitto.publish.messages.sent",
+    "$SYS/broker/publish/messages/received": "mosquitto.publish.messages.received",
+    "$SYS/broker/bytes/sent": "mosquitto.bytes.sent",
+    "$SYS/broker/bytes/received": "mosquitto.bytes.received",
+    "$SYS/broker/retained messages/count": "mosquitto.retained_messages.count",
+    "$SYS/broker/heap/current": "mosquitto.heap.current",
+};
+
 function getConfig() {
     const host = process.env.MQTT_HOST;
     const protocol = (process.env.MQTT_PROTOCOL ?? "mqtt") as "mqtt" | "mqtts";
@@ -112,10 +124,11 @@ function getClient() {
             direction: "state",
             detail: `connected to ${config.protocol}://${config.host}:${config.port}`,
         });
+        metrics.increment("mqtt.connection.connect");
 
         if (!debugSubscriptionsInstalled) {
             debugSubscriptionsInstalled = true;
-            for (const topic of getDebugTopics()) {
+            for (const topic of [...getDebugTopics(), "$SYS/#"]) {
                 client?.subscribe(topic, (err) => {
                     if (err) {
                         pushDebugEvent({
@@ -140,6 +153,7 @@ function getClient() {
             direction: "state",
             detail: "reconnecting",
         });
+        metrics.increment("mqtt.connection.reconnect");
     });
 
     client.on("close", () => {
@@ -147,6 +161,7 @@ function getClient() {
             direction: "state",
             detail: "connection closed",
         });
+        metrics.increment("mqtt.connection.close");
     });
 
     client.on("offline", () => {
@@ -157,6 +172,17 @@ function getClient() {
     });
 
     client.on("message", (topic, payload) => {
+        const sysMetric = SYS_TOPIC_TO_METRIC[topic];
+        if (sysMetric) {
+            const value = parseFloat(Buffer.from(payload).toString("utf8"));
+            if (Number.isFinite(value)) {
+                metrics.gauge(sysMetric, value);
+            }
+            return;
+        }
+
+        if (topic.startsWith("$SYS/")) return;
+
         pushDebugEvent({
             direction: "incoming",
             topic,
@@ -170,6 +196,7 @@ function getClient() {
             direction: "error",
             detail: err.message,
         });
+        metrics.increment("mqtt.connection.error");
     });
 
     return client;
@@ -195,6 +222,7 @@ export async function publish(topic: string, payload: string) {
                     payloadPreview: toPayloadPreview(payload),
                     detail: `publish failed: ${err.message}`,
                 });
+                metrics.increment("mqtt.publish.error");
                 return reject(err);
             }
             pushDebugEvent({
@@ -202,6 +230,7 @@ export async function publish(topic: string, payload: string) {
                 topic,
                 payloadPreview: toPayloadPreview(payload),
             });
+            metrics.increment("mqtt.publish.success");
             return resolve();
         });
     });
@@ -212,4 +241,18 @@ export async function publish(topic: string, payload: string) {
 export function getRecentMqttDebugEvents(limit = 200) {
     const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
     return debugEvents.slice(-safeLimit);
+}
+
+export function getLatestOutgoingCommandEvent(deviceId: string) {
+    const normalizedId = deviceId.trim();
+    if (!normalizedId) return null;
+    const topic = `/device/${normalizedId}/commands`;
+    for (let i = debugEvents.length - 1; i >= 0; i -= 1) {
+        const event = debugEvents[i];
+        if (!event) continue;
+        if (event.direction !== "outgoing") continue;
+        if (event.topic !== topic) continue;
+        return event;
+    }
+    return null;
 }

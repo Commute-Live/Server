@@ -127,7 +127,7 @@ const fetchBusArrivals = async (key: string, ctx: FetchContext): Promise<FetchRe
             arrivals,
             fetchedAt: new Date(ctx.now).toISOString(),
         },
-        ttlSeconds: 20,
+        ttlSeconds: 30,
     };
 };
 

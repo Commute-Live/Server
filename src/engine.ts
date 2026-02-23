@@ -3,6 +3,7 @@ import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
+import { metrics } from "./metrics.ts";
 import "./providers/register.ts";
 
 type EngineOptions = {
@@ -82,12 +83,15 @@ const extractNextArrivals = (payload: unknown) => {
             arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
             delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
             destination: typeof row.destination === "string" ? row.destination : undefined,
+            status: typeof row.status === "string" ? row.status : undefined,
+            direction: typeof row.direction === "string" ? row.direction : undefined,
+            line: typeof row.line === "string" ? row.line : undefined,
         };
     });
 };
 
 const stripArrivalTimeForDevice = (
-    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string }>,
     fetchedAt?: string,
     fallbackDestination?: string,
 ) => {
@@ -102,16 +106,22 @@ const stripArrivalTimeForDevice = (
         }
 
         return {
-            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : 0,
+            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : undefined,
             destination: arrival.destination ?? fallbackDestination,
+            status: arrival.status,
+            direction: arrival.direction,
+            line: arrival.line,
             eta,
         };
     });
 
     while (normalized.length < MAX_ARRIVALS_PER_LINE) {
         normalized.push({
-            delaySeconds: 0,
+            delaySeconds: undefined,
             destination: fallbackDestination,
+            status: undefined,
+            direction: undefined,
+            line: undefined,
             eta: "--",
         });
     }
@@ -156,7 +166,8 @@ type DeviceLinePayload = {
     stopId?: string;
     direction?: string;
     directionLabel?: string;
-    nextArrivals: Array<{ delaySeconds?: number; destination?: string; eta?: string }>;
+    status?: string;
+    nextArrivals: Array<{ delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string; eta?: string }>;
     destination?: string;
     eta?: string;
 };
@@ -197,6 +208,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
     const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
     const nextArrivals = extractNextArrivals(payload);
     const eta = etaTextFromArrivals(nextArrivals, fetchedAt);
+    const status = nextArrivals.find((item) => typeof item.status === "string" && item.status.length > 0)?.status;
 
     return {
         provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
@@ -205,6 +217,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         stopId,
         direction,
         directionLabel: directionLabel || undefined,
+        status,
         destination:
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
@@ -234,7 +247,7 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
 
     const primary = lines[0];
-    const linesForDevice = lines.map(({ provider, stop, stopId, direction, eta, ...rest }) => rest);
+    const linesForDevice = lines.map(({ provider, stop, stopId, eta, ...rest }) => rest);
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
@@ -287,12 +300,15 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 return;
             }
             const now = Date.now();
+            const providerTag = `provider:${providerId}`;
             try {
+                const fetchStart = Date.now();
                 const result = await provider.fetch(key, {
                     now,
                     key,
                     log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
                 });
+                metrics.histogram("engine.fetch.duration", Date.now() - fetchStart, [providerTag]);
                 await setCacheEntry(key, result.payload, result.ttlSeconds, now);
                 const deviceIds = fanout.get(key);
                 if (deviceIds?.size) {
@@ -302,6 +318,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 }
             } catch (err) {
                 console.error(`[ENGINE] fetch failed for key ${key}:`, err);
+                metrics.increment("engine.fetch.error", [providerTag]);
             } finally {
                 inflight.delete(key);
             }
@@ -320,9 +337,15 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 const entry = await getCacheEntry(key);
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
+                    const ttlRemaining = entry ? entry.expiresAt - now : -1;
+                    console.log(`[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`);
+                    metrics.increment("engine.cache.miss");
                     void fetchKey(key);
+                } else {
+                    metrics.increment("engine.cache.hit");
                 }
             }
+            metrics.gauge("engine.inflight", inflight.size);
         } finally {
             refreshLoopRunning = false;
         }
@@ -346,6 +369,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
+        metrics.gauge("engine.devices.active", deviceToKeys.size);
+        metrics.gauge("engine.fanout.keys", fanout.size);
         await scheduleFetches();
     };
 

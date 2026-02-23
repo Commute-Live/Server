@@ -2,14 +2,37 @@ import { transit_realtime } from "gtfs-realtime-bindings";
 import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
+import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
 import { readFileSync } from "node:fs";
 
 const TRIP_FEED_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
-const FEED_TTL_MS = 15_000;
+const TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
+const FEED_TTL_S = 15;
 const CACHE_TTL_SECONDS = 20;
+const FEED_CACHE_KEY = "septa-bus:feed";
+const PRINT_FEED_CACHE_KEY = "septa-bus:print";
 
-const feedCache: { feed: transit_realtime.FeedMessage; expiresAt: number } = { feed: undefined as any, expiresAt: 0 };
 let inflight: Promise<transit_realtime.FeedMessage> | null = null;
+let printInflight: Promise<string> | null = null;
+
+type NormalizedArrival = {
+    arrivalTime: string;
+    scheduledTime: string | null;
+    delaySeconds: number | null;
+    destination?: string;
+};
+
+type PrintTripUpdate = {
+    routeId?: string;
+    directionId?: string;
+    tripId?: string;
+    arrivals: Array<{
+        stopId?: string;
+        arrivalEpochMs?: number;
+        departureEpochMs?: number;
+        delaySeconds?: number;
+    }>;
+};
 
 const loadStopNames = (() => {
     let map: Map<string, string> | null = null;
@@ -92,15 +115,16 @@ const loadDirectionDestinations = (() => {
 })();
 
 const fetchFeed = async (now: number) => {
-    if (feedCache.feed && feedCache.expiresAt > now) return feedCache.feed;
+    const cachedBuf = await getProviderCacheBuffer(FEED_CACHE_KEY);
+    if (cachedBuf) return transit_realtime.FeedMessage.decode(cachedBuf);
+
     if (inflight) return inflight;
     inflight = (async () => {
         const res = await fetch(TRIP_FEED_URL);
         if (!res.ok) throw new Error(`SEPTA trip feed error ${res.status} ${res.statusText}`);
         const buffer = Buffer.from(await res.arrayBuffer());
         const feed = transit_realtime.FeedMessage.decode(buffer);
-        feedCache.feed = feed;
-        feedCache.expiresAt = now + FEED_TTL_MS;
+        await setProviderCacheBuffer(FEED_CACHE_KEY, buffer, FEED_TTL_S);
         inflight = null;
         return feed;
     })().catch((err) => {
@@ -108,6 +132,120 @@ const fetchFeed = async (now: number) => {
         throw err;
     });
     return inflight;
+};
+
+const parseTripPrintUpdates = (body: string): PrintTripUpdate[] => {
+    const updates: PrintTripUpdate[] = [];
+    const entityMatches = body.match(/entity\s*\{[\s\S]*?\n\}/g) ?? [];
+    for (const entity of entityMatches) {
+        const tuMatch = entity.match(/trip_update\s*\{([\s\S]*?)\n\s*\}/);
+        if (!tuMatch?.[1]) continue;
+        const tripUpdateBody = tuMatch[1];
+
+        const routeId = tripUpdateBody.match(/route_id:\s*"([^"]+)"/)?.[1];
+        const directionId = tripUpdateBody.match(/direction_id:\s*(\d+)/)?.[1];
+        const tripId = tripUpdateBody.match(/trip_id:\s*"([^"]+)"/)?.[1];
+
+        const stopBlocks = tripUpdateBody.match(/stop_time_update\s*\{([\s\S]*?)\n\s*\}/g) ?? [];
+        const arrivals = stopBlocks.map((block) => {
+            const stopId = block.match(/stop_id:\s*"([^"]+)"/)?.[1];
+            const arrivalSecondsRaw = block.match(/arrival\s*\{[\s\S]*?time:\s*(\d+)/)?.[1];
+            const departureSecondsRaw = block.match(/departure\s*\{[\s\S]*?time:\s*(\d+)/)?.[1];
+            const delayRaw = block.match(/(?:arrival|departure)\s*\{[\s\S]*?delay:\s*(-?\d+)/)?.[1];
+
+            const arrivalEpochMs = arrivalSecondsRaw ? Number(arrivalSecondsRaw) * 1000 : undefined;
+            const departureEpochMs = departureSecondsRaw ? Number(departureSecondsRaw) * 1000 : undefined;
+            const delaySeconds = delayRaw ? Number(delayRaw) : undefined;
+            return {
+                stopId,
+                arrivalEpochMs: Number.isFinite(arrivalEpochMs) ? arrivalEpochMs : undefined,
+                departureEpochMs: Number.isFinite(departureEpochMs) ? departureEpochMs : undefined,
+                delaySeconds: Number.isFinite(delaySeconds) ? delaySeconds : undefined,
+            };
+        });
+
+        updates.push({ routeId, directionId, tripId, arrivals });
+    }
+
+    return updates;
+};
+
+const fetchPrintSnapshot = async () => {
+    const cached = await getProviderCacheBuffer(PRINT_FEED_CACHE_KEY);
+    if (cached) return Buffer.from(cached).toString("utf8");
+
+    if (printInflight) return printInflight;
+    printInflight = (async () => {
+        const res = await fetch(TRIP_PRINT_URL);
+        if (!res.ok) throw new Error(`SEPTA trip print error ${res.status} ${res.statusText}`);
+        const text = await res.text();
+        await setProviderCacheBuffer(PRINT_FEED_CACHE_KEY, Buffer.from(text, "utf8"), FEED_TTL_S);
+        printInflight = null;
+        return text;
+    })().catch((err) => {
+        printInflight = null;
+        throw err;
+    });
+
+    return printInflight;
+};
+
+const pickArrivalsFromPrint = (
+    snapshot: string,
+    filters: { route?: string; stop?: string; direction?: string },
+    nowMs: number,
+): NormalizedArrival[] => {
+    const route = filters.route?.trim();
+    const stop = filters.stop?.trim();
+    const direction = filters.direction?.trim();
+    const out: NormalizedArrival[] = [];
+    const headsigns = loadTripHeadsigns();
+    const directionDestinations = loadDirectionDestinations();
+
+    for (const item of parseTripPrintUpdates(snapshot)) {
+        if (route && item.routeId?.trim() !== route) continue;
+        if (direction && item.directionId?.trim() !== direction) continue;
+
+        for (const arrival of item.arrivals) {
+            if (stop && arrival.stopId?.trim() !== stop) continue;
+            const ts = arrival.arrivalEpochMs ?? arrival.departureEpochMs;
+            if (!ts || !Number.isFinite(ts)) continue;
+            if (ts < nowMs - 15_000) continue;
+
+            const destinationFromTrips = item.tripId ? headsigns.get(item.tripId) : undefined;
+            const destinationFromDirection =
+                item.routeId && (item.directionId === "0" || item.directionId === "1")
+                    ? directionDestinations.get(`${item.routeId}:${item.directionId}`)
+                    : undefined;
+            out.push({
+                arrivalTime: new Date(ts).toISOString(),
+                scheduledTime:
+                    typeof arrival.delaySeconds === "number"
+                        ? new Date(ts - arrival.delaySeconds * 1000).toISOString()
+                        : null,
+                delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : null,
+                destination: destinationFromTrips ?? destinationFromDirection,
+            });
+        }
+    }
+
+    const seen = new Set<string>();
+    return out
+        .filter((a) => {
+            if (seen.has(a.arrivalTime)) return false;
+            seen.add(a.arrivalTime);
+            return true;
+        })
+        .sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime))
+        .slice(0, 20);
+};
+
+const normalizeDirection = (value?: string | null) => {
+    if (!value) return undefined;
+    const v = value.trim().toUpperCase();
+    if (v === "N" || v === "0") return "0";
+    if (v === "S" || v === "1") return "1";
+    return v || undefined;
 };
 
 const pickArrivals = (
@@ -189,15 +327,32 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
     const { params } = parseKeySegments(key);
     const route = params.line;
     const stop = params.stop;
-    const direction = params.direction;
+    const direction = normalizeDirection(params.direction);
     if (!route) throw new Error("SEPTA bus route is required (line=<routeId>)");
     if (!stop) throw new Error("SEPTA bus stop is required (stop=<stopId>)");
 
-    const feed = await fetchFeed(ctx.now);
-    let arrivals = pickArrivals(feed, { route, stop, direction }, ctx.now);
-    // Fallback: if nothing matched with the stop filter, retry without stop to avoid over-filtering.
-    if (!arrivals.length && stop) {
-        arrivals = pickArrivals(feed, { route, stop: undefined, direction }, ctx.now);
+    let arrivals: NormalizedArrival[] = [];
+    try {
+        const feed = await fetchFeed(ctx.now);
+        arrivals = pickArrivals(feed, { route, stop, direction }, ctx.now);
+        // Fallback: if nothing matched with the stop filter, retry without stop to avoid over-filtering.
+        if (!arrivals.length && stop) {
+            arrivals = pickArrivals(feed, { route, stop: undefined, direction }, ctx.now);
+        }
+    } catch {
+        // Fall through to print.php snapshot fallback.
+    }
+
+    if (!arrivals.length) {
+        try {
+            const snapshot = await fetchPrintSnapshot();
+            arrivals = pickArrivalsFromPrint(snapshot, { route, stop, direction }, ctx.now);
+            if (!arrivals.length && stop) {
+                arrivals = pickArrivalsFromPrint(snapshot, { route, stop: undefined, direction }, ctx.now);
+            }
+        } catch {
+            // Keep empty arrivals.
+        }
     }
     const stopNames = loadStopNames();
     const stopName = stopNames.get(stop);
@@ -209,6 +364,7 @@ const fetchSeptaBusArrivals = async (key: string, ctx: FetchContext): Promise<Fe
             line: route,
             stop: stopName ?? stop,
             stopId: stop,
+            stopName: stopName ?? stop,
             direction,
             directionLabel: destination ?? direction ?? stopName ?? stop,
             destination,
