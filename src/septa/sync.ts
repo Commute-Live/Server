@@ -215,7 +215,9 @@ export async function runSeptaSync(db: DbLike): Promise<{
             });
         }
 
-        const railRows = await fetchRecords(`${SEPTA_BASE}/RRSchedules/index.php`);
+        const railRows = await fetchRecords(`${SEPTA_BASE}/RRSchedules/index.php`).catch(
+            () => [] as Array<Record<string, unknown>>,
+        );
         for (const record of railRows) {
             const routeId = pickRailRouteCode(record);
             if (!routeId) continue;
