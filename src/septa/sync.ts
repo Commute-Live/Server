@@ -10,8 +10,6 @@ import { logger } from "../logger.ts";
 import { normalizeDirection, normalizeRouteId } from "./catalog.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
-const BUS_TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
-const RAIL_TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septarail-pa-us/Trip/print.php";
 
 type DbLike = {
     select: Function;
@@ -42,15 +40,6 @@ type RouteStopRow = {
     stopId: string;
     direction: string;
     stopSequence: number | null;
-};
-
-type PrintTripUpdate = {
-    routeId?: string;
-    directionId?: string;
-    arrivals: Array<{
-        stopId?: string;
-        stopSequence?: number;
-    }>;
 };
 
 const parseJsonSafe = (input: string): unknown => {
@@ -92,26 +81,6 @@ const readField = (record: Record<string, unknown>, keys: string[]) => {
 };
 
 const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ");
-const isLikelyRailCode = (value: string) => /^[A-Z0-9]{2,5}$/.test(value);
-
-const pickRailRouteCode = (record: Record<string, unknown>): string => {
-    const candidates = [
-        "route_id",
-        "route",
-        "linecode",
-        "line_code",
-        "lineabbr",
-        "line_abbr",
-        "route_short_name",
-        "line",
-    ];
-    for (const key of candidates) {
-        const raw = readField(record, [key]).trim().toUpperCase().replace(/\s+/g, "");
-        if (!raw) continue;
-        if (isLikelyRailCode(raw)) return raw;
-    }
-    return "";
-};
 
 const classifySurfaceMode = (record: Record<string, unknown>, routeId: string): SeptaMode => {
     const routeType = readField(record, ["route_type", "routetype"]).trim();
@@ -131,86 +100,57 @@ async function fetchRecords(url: string): Promise<Array<Record<string, unknown>>
     return toRecords(parseJsonSafe(text));
 }
 
-const parseTripPrintUpdates = (body: string): PrintTripUpdate[] => {
-    const updates: PrintTripUpdate[] = [];
-    const lines = body.split(/\r?\n/);
-    let inTripUpdate = false;
-    let depth = 0;
-    let routeId: string | undefined;
-    let directionId: string | undefined;
-    let currentStopId: string | undefined;
-    let currentStopSequence: number | undefined;
-    let arrivals: Array<{ stopId?: string; stopSequence?: number }> = [];
+const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
 
-    const finalizeStop = () => {
-        if (currentStopId) {
-            arrivals.push({
-                stopId: currentStopId,
-                stopSequence: currentStopSequence,
-            });
-        }
-        currentStopId = undefined;
-        currentStopSequence = undefined;
-    };
+const generateRailCodeCandidates = (lineName: string): string[] => {
+    const normalized = lineName
+        .toUpperCase()
+        .replace(/&/g, " ")
+        .replace(/[^A-Z0-9/ -]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+    if (!normalized) return [];
 
-    const finalizeTrip = () => {
-        finalizeStop();
-        if (routeId && arrivals.length > 0) {
-            updates.push({ routeId, directionId, arrivals });
-        }
-        routeId = undefined;
-        directionId = undefined;
-        arrivals = [];
-    };
+    const slashGroups = normalized.split("/").map((s) => s.trim()).filter(Boolean);
+    const wordGroups = slashGroups.map((group) => group.split(" ").filter(Boolean));
+    const words = wordGroups.flat();
+    const candidates: string[] = [];
 
-    for (const raw of lines) {
-        const line = raw.trim();
-        if (!line) continue;
-
-        if (!inTripUpdate) {
-            if (line.startsWith("trip_update")) {
-                inTripUpdate = true;
-                depth =
-                    (line.match(/\{/g) ?? []).length -
-                    (line.match(/\}/g) ?? []).length;
-                routeId = undefined;
-                directionId = undefined;
-                currentStopId = undefined;
-                currentStopSequence = undefined;
-                arrivals = [];
-            }
-            continue;
-        }
-
-        const routeMatch = line.match(/^route_id:\s*"([^"]+)"/);
-        if (routeMatch?.[1]) routeId = routeMatch[1];
-
-        const directionMatch = line.match(/^direction_id:\s*(\d+)/);
-        if (directionMatch?.[1]) directionId = directionMatch[1];
-
-        if (line.startsWith("stop_time_update")) {
-            finalizeStop();
-        }
-
-        const stopMatch = line.match(/^stop_id:\s*"([^"]+)"/);
-        if (stopMatch?.[1]) currentStopId = stopMatch[1];
-
-        const seqMatch = line.match(/^stop_sequence:\s*(\d+)/);
-        if (seqMatch?.[1] && !Number.isNaN(Number(seqMatch[1]))) {
-            currentStopSequence = Number(seqMatch[1]);
-        }
-
-        depth += (line.match(/\{/g) ?? []).length;
-        depth -= (line.match(/\}/g) ?? []).length;
-        if (depth <= 0) {
-            finalizeTrip();
-            inTripUpdate = false;
-            depth = 0;
+    for (const groupWords of wordGroups) {
+        if (groupWords[0]) candidates.push(groupWords[0].slice(0, 3));
+        if (groupWords.length > 1) {
+            candidates.push(groupWords[groupWords.length - 1].slice(0, 3));
+            candidates.push(
+                `${groupWords[0][0] ?? ""}${(groupWords[groupWords.length - 1] ?? "").slice(0, 2)}`,
+            );
         }
     }
+    if (words[0]) candidates.push(words[0].slice(0, 3));
+    if (words.length > 1) candidates.push(words[words.length - 1].slice(0, 3));
+    candidates.push(normalized.replace(/[^A-Z0-9]/g, "").slice(0, 3));
+    candidates.push(normalized.replace(/[^A-Z0-9]/g, "").slice(0, 5));
 
-    if (inTripUpdate) finalizeTrip();
-    return updates;
+    return unique(candidates.map((v) => v.replace(/[^A-Z0-9]/g, "").slice(0, 5)));
+};
+
+const candidateHasStops = async (code: string): Promise<boolean> => {
+    if (!code) return false;
+    const rows = await fetchRecords(
+        `${SEPTA_BASE}/Stops/index.php?req1=${encodeURIComponent(code)}`,
+    );
+    return rows.length > 0;
+};
+
+const resolveRailRouteCodeFromLine = async (lineName: string): Promise<string | null> => {
+    const candidates = generateRailCodeCandidates(lineName);
+    for (const candidate of candidates) {
+        try {
+            if (await candidateHasStops(candidate)) return candidate;
+        } catch {
+            // Ignore candidate failures and continue probing.
+        }
+    }
+    return null;
 };
 
 function extractSurfaceRoutesFromTransitViewAll(
@@ -246,32 +186,6 @@ function extractSurfaceRoutesFromTransitViewAll(
     return Array.from(out.values());
 }
 
-async function fetchPrintTripUpdates(url: string): Promise<PrintTripUpdate[]> {
-    const res = await fetch(url);
-    if (!res.ok) {
-        throw new Error(`SEPTA GTFS-RT print ${url} -> ${res.status} ${res.statusText}`);
-    }
-    const text = await res.text();
-    return parseTripPrintUpdates(text);
-}
-
-async function fetchStopNameByStopId(stopId: string): Promise<string | null> {
-    const url = `${SEPTA_BASE}/Stops/index.php?stop_id=${encodeURIComponent(stopId)}`;
-    const rows = await fetchRecords(url);
-    for (const row of rows) {
-        const name =
-            readField(row, [
-                "stop_name",
-                "stopname",
-                "name",
-                "station",
-                "stop",
-            ]) || "";
-        if (name.trim()) return normalizeName(name);
-    }
-    return null;
-}
-
 export async function runSeptaSync(db: DbLike): Promise<{
     runId: string;
     stats: Record<string, unknown>;
@@ -304,48 +218,28 @@ export async function runSeptaSync(db: DbLike): Promise<{
             });
         }
 
-        const railRows = await fetchRecords(`${SEPTA_BASE}/RRSchedules/index.php`).catch(
-            () => [] as Array<Record<string, unknown>>,
-        );
-        for (const record of railRows) {
-            const routeId = pickRailRouteCode(record);
-            if (!routeId) continue;
-            const shortName =
-                readField(record, ["route_short_name", "lineabbr", "line_abbr"]) ||
-                routeId;
-            const longName =
-                readField(record, [
-                    "line",
-                    "service",
-                    "route_long_name",
-                    "route_name",
-                    "description",
-                ]) || routeId;
-            routeMap.set(`rail:${routeId}`, {
-                mode: "rail",
-                id: routeId,
-                shortName,
-                longName,
-                displayName: longName || shortName || routeId,
-            });
-        }
-
         const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
+        const railNames = new Map<string, string>();
         for (const record of trainRows) {
-            const routeId = pickRailRouteCode(record);
-            if (!routeId) continue;
-            const existing = routeMap.get(`rail:${routeId}`);
-            const longName =
-                readField(record, ["line", "service", "destination"]) ||
-                existing?.longName ||
-                routeId;
-            const shortName = existing?.shortName || routeId;
+            const longName = normalizeName(
+                readField(record, ["line", "service", "destination"]),
+            );
+            if (!longName) continue;
+            railNames.set(longName.toLowerCase(), longName);
+        }
+        for (const longName of railNames.values()) {
+            const routeId = await resolveRailRouteCodeFromLine(longName);
+            if (!routeId) {
+                errors.push(`No route code resolved for rail line: ${longName}`);
+                logger.warn({ line: longName }, "SEPTA sync could not resolve rail code");
+                continue;
+            }
             routeMap.set(`rail:${routeId}`, {
                 mode: "rail",
                 id: routeId,
-                shortName,
+                shortName: routeId,
                 longName,
-                displayName: longName || shortName || routeId,
+                displayName: longName,
             });
         }
 
@@ -416,84 +310,6 @@ export async function runSeptaSync(db: DbLike): Promise<{
                     err instanceof Error ? err.message : `Stops fetch failed for ${route.id}`;
                 errors.push(message);
                 logger.warn({ route: route.id, mode: route.mode, err }, "SEPTA sync route stops failed");
-            }
-        }
-
-        if (routeStopMap.size === 0) {
-            const seenStopKeys = new Set<string>();
-            const addFromPrint = (
-                mode: SeptaMode,
-                updates: PrintTripUpdate[],
-            ) => {
-                for (const update of updates) {
-                    const rawRouteId = (update.routeId ?? "").trim();
-                    if (!rawRouteId) continue;
-                    const routeId = normalizeRouteId(
-                        mode === "rail" ? "rail" : "bus",
-                        rawRouteId,
-                    );
-                    if (!routeId) continue;
-                    const routedMode =
-                        mode === "rail"
-                            ? "rail"
-                            : classifySurfaceMode({}, routeId);
-                    const routeKey = `${routedMode}:${routeId}`;
-                    if (!routeMap.has(routeKey)) {
-                        routeMap.set(routeKey, {
-                            mode: routedMode,
-                            id: routeId,
-                            shortName: routeId,
-                            longName: "",
-                            displayName: routeId,
-                        });
-                    }
-                    const direction = normalizeDirection(
-                        routedMode,
-                        update.directionId ?? "",
-                    );
-                    for (const arrival of update.arrivals) {
-                        const stopId = (arrival.stopId ?? "").trim();
-                        if (!stopId) continue;
-                        routeStopMap.set(
-                            `${routedMode}:${routeId}:${stopId}:${direction}`,
-                            {
-                                mode: routedMode,
-                                routeId,
-                                stopId,
-                                direction,
-                                stopSequence: arrival.stopSequence ?? null,
-                            },
-                        );
-                        seenStopKeys.add(`${routedMode}:${stopId}`);
-                    }
-                }
-            };
-
-            const [surfacePrint, railPrint] = await Promise.all([
-                fetchPrintTripUpdates(BUS_TRIP_PRINT_URL).catch(
-                    () => [] as PrintTripUpdate[],
-                ),
-                fetchPrintTripUpdates(RAIL_TRIP_PRINT_URL).catch(
-                    () => [] as PrintTripUpdate[],
-                ),
-            ]);
-            addFromPrint("bus", surfacePrint);
-            addFromPrint("rail", railPrint);
-
-            for (const key of seenStopKeys) {
-                const [modeRaw, stopId] = key.split(":", 2);
-                const mode = (modeRaw as SeptaMode) ?? "bus";
-                if (!stopId) continue;
-                const stopName =
-                    (await fetchStopNameByStopId(stopId).catch(() => null)) ??
-                    stopId;
-                stopMap.set(`${mode}:${stopId}`, {
-                    mode,
-                    id: stopId,
-                    name: stopName,
-                    lat: null,
-                    lon: null,
-                });
             }
         }
 
