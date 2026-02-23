@@ -1,9 +1,10 @@
-import { cacheMap, getCacheEntry, markExpired, setCacheEntry } from "./cache.ts";
+import { cacheMap, getCacheEntry, loadActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
 import { metrics } from "./metrics.ts";
+import { logger } from "./logger.ts";
 import "./providers/register.ts";
 
 type EngineOptions = {
@@ -21,7 +22,7 @@ type DeviceOptions = {
 };
 
 const defaultPublish = (topic: string, payload: unknown) => {
-    console.log("[PUBLISH]", topic, JSON.stringify(payload));
+    logger.debug({ topic, payload }, "publish");
 };
 
 const MAX_ARRIVALS_PER_LINE = 3;
@@ -41,11 +42,11 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
         if (!provider) {
-            console.warn(`[ENGINE] Unknown provider ${sub.provider} for device ${sub.deviceId}`);
+            logger.warn({ provider: sub.provider, deviceId: sub.deviceId }, "unknown provider");
             continue;
         }
         if (!provider.supports(sub.type)) {
-            console.warn(`[ENGINE] Provider ${sub.provider} does not support type ${sub.type}`);
+            logger.warn({ provider: sub.provider, type: sub.type }, "provider does not support type");
             continue;
         }
         const key = provider.toKey({ type: sub.type, config: sub.config });
@@ -297,7 +298,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
             const { providerId } = parseKeySegments(key);
             const provider = providers.get(providerId);
             if (!provider) {
-                console.warn(`[ENGINE] No provider found for key ${key}`);
+                logger.warn({ key }, "no provider found for key");
                 return;
             }
             const now = Date.now();
@@ -307,7 +308,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 const result = await provider.fetch(key, {
                     now,
                     key,
-                    log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
+                    log: (...args: unknown[]) => logger.debug({ key }, String(args[0] ?? "")),
                 });
                 metrics.histogram("engine.fetch.duration", Date.now() - fetchStart, [providerTag]);
                 await setCacheEntry(key, result.payload, result.ttlSeconds, now);
@@ -319,7 +320,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                     }
                 }
             } catch (err) {
-                console.error(`[ENGINE] fetch failed for key ${key}:`, err);
+                logger.error({ key, err }, "fetch failed");
                 metrics.increment("engine.fetch.error", [providerTag]);
             } finally {
                 inflight.delete(key);
@@ -343,7 +344,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
                     const ttlRemaining = entry ? entry.expiresAt - now : -1;
-                    console.log(`[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`);
+                    logger.debug({ key, ttlRemaining, hasEntry: !!entry }, "cache miss");
                     metrics.increment("engine.cache.miss");
                     void fetchKey(key);
                 } else {
@@ -381,7 +382,15 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         await scheduleFetches();
     };
 
-    const ready = rebuild();
+    const ready = loadActiveDeviceIds()
+        .then((persisted) => {
+            for (const deviceId of persisted) {
+                onlineDevices.add(deviceId);
+            }
+            logger.info({ count: persisted.size }, "restored active devices from Redis");
+        })
+        .catch((err) => logger.error({ err }, "failed to restore active devices from Redis"))
+        .then(() => rebuild());
 
     refreshTimer = setInterval(() => {
         void scheduleFetches();
@@ -424,11 +433,13 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
 
     const markDeviceActive = (deviceId: string): Promise<void> => {
         onlineDevices.add(deviceId);
+        markDeviceActiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device active state"));
         return Promise.resolve();
     };
 
     const markDeviceInactive = (deviceId: string): Promise<void> => {
         onlineDevices.delete(deviceId);
+        markDeviceInactiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device inactive state"));
         return Promise.resolve();
     };
 
