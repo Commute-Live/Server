@@ -489,6 +489,7 @@ export function startAggregatorEngine(
 
     const rebuildMaps = async () => {
         const subs = await loadSubscriptions();
+        const totalDevices = new Set(subs.map((s) => s.deviceId)).size;
         const activeSubs = subs.filter((sub) =>
             onlineDevices.has(sub.deviceId),
         );
@@ -496,7 +497,7 @@ export function startAggregatorEngine(
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
-        metrics.gauge("engine.devices.registered", deviceToKeys.size);
+        metrics.gauge("engine.devices.registered", totalDevices);
         metrics.gauge("engine.fanout.keys", fanout.size);
     };
 
