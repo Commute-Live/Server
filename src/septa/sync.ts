@@ -101,6 +101,18 @@ async function fetchRecords(url: string): Promise<Array<Record<string, unknown>>
 }
 
 const unique = (values: string[]) => Array.from(new Set(values.filter(Boolean)));
+const INVALID_RAIL_LINE_TOKENS = new Set(["LOCAL", "EXPRESS", "EXP"]);
+
+const normalizeRailLineName = (value: string): string => {
+    const normalized = normalizeName(value);
+    return normalized;
+};
+
+const isInvalidRailLineName = (value: string): boolean => {
+    const key = value.trim().toUpperCase();
+    if (!key) return true;
+    return INVALID_RAIL_LINE_TOKENS.has(key);
+};
 
 const generateRailCodeCandidates = (lineName: string): string[] => {
     const normalized = lineName
@@ -226,10 +238,8 @@ export async function runSeptaSync(db: DbLike): Promise<{
         const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
         const railNames = new Map<string, string>();
         for (const record of trainRows) {
-            const longName = normalizeName(
-                readField(record, ["line", "service", "destination"]),
-            );
-            if (!longName) continue;
+            const longName = normalizeRailLineName(readField(record, ["line"]));
+            if (isInvalidRailLineName(longName)) continue;
             railNames.set(longName.toLowerCase(), longName);
         }
         for (const longName of railNames.values()) {
