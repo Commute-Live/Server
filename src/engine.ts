@@ -511,6 +511,8 @@ export function startAggregatorEngine(
 
     const refreshDevice = async (deviceId: string) => {
         await ready;
+        // User-triggered refresh should not depend on prior presence/heartbeat.
+        await markDeviceActiveInCache(deviceId);
         const keys = deviceToKeys.get(deviceId);
         if (!keys?.size) return;
         const now = Date.now();
