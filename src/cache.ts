@@ -1,5 +1,6 @@
 import { createClient, commandOptions } from "redis";
 import type { CacheEntry } from "./types.ts";
+import { logger } from "./logger.ts";
 
 const CACHE_PREFIX = "commutelive:arrivals-cache:";
 const REDIS_URL = process.env.REDIS_URL ?? "redis://127.0.0.1:6379";
@@ -39,7 +40,7 @@ const getRedisClient = async (): Promise<RedisClient> => {
 
     const client = createClient({ url: REDIS_URL });
     client.on("error", (err) => {
-        console.error("[CACHE] Redis error:", err.message);
+        logger.error({ err }, "Redis error");
     });
 
     connectPromise = client
@@ -61,7 +62,7 @@ const getRedisClient = async (): Promise<RedisClient> => {
 export const initCache = async () => {
     const client = await getRedisClient();
     await client.ping();
-    console.log(`[CACHE] Redis connected: ${REDIS_URL}`);
+    logger.info({ url: REDIS_URL }, "Redis connected");
 };
 
 export const getCacheEntry = async (key: string): Promise<CacheEntry | null> => {

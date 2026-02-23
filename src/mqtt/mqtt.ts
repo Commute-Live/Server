@@ -1,5 +1,6 @@
 import mqtt, { type MqttClient } from "mqtt";
 import { metrics } from "../metrics.ts";
+import { logger } from "../logger.ts";
 
 let client: MqttClient | null = null;
 let isConfigured = false;
@@ -45,18 +46,11 @@ const pushDebugEvent = (event: Omit<MqttDebugEvent, "id" | "ts">) => {
         debugEvents.splice(0, debugEvents.length - DEBUG_EVENTS_MAX);
     }
 
-    const level = nextEvent.direction === "error" ? "error" : "info";
-    console.log(
-        JSON.stringify({
-            level,
-            message: "mqtt_debug_event",
-            source: "mqtt",
-            service: process.env.DD_SERVICE ?? "commutelive-api",
-            env: process.env.DD_ENV ?? process.env.NODE_ENV ?? "unknown",
-            version: process.env.DD_VERSION ?? "unknown",
-            mqtt: nextEvent,
-        }),
-    );
+    if (nextEvent.direction === "error") {
+        logger.error({ source: "mqtt", mqtt: nextEvent }, "mqtt event");
+    } else {
+        logger.info({ source: "mqtt", mqtt: nextEvent }, "mqtt event");
+    }
 };
 
 const getDebugTopics = () => {
@@ -99,9 +93,7 @@ function getClient() {
     const config = getConfig();
     if (!config) {
         if (!isConfigured) {
-            console.warn(
-                "MQTT not configured. Set MQTT_HOST to enable publishing.",
-            );
+            logger.warn("MQTT not configured — set MQTT_HOST to enable publishing");
             isConfigured = true;
         }
         return null;
@@ -118,9 +110,7 @@ function getClient() {
     });
 
     client.on("connect", () => {
-        console.log(
-            `MQTT connected to ${config.protocol}://${config.host}:${config.port}`,
-        );
+        logger.info({ url: `${config.protocol}://${config.host}:${config.port}` }, "MQTT connected");
         pushDebugEvent({
             direction: "state",
             detail: `connected to ${config.protocol}://${config.host}:${config.port}`,
@@ -200,7 +190,7 @@ function getClient() {
     });
 
     client.on("error", (err) => {
-        console.error("MQTT error:", err.message);
+        logger.error({ err }, "MQTT error");
         pushDebugEvent({
             direction: "error",
             detail: err.message,

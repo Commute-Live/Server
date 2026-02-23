@@ -14,6 +14,7 @@ import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
 import { metrics } from "./metrics.ts";
+import { logger } from "./logger.ts";
 import "./providers/register.ts";
 
 type EngineOptions = {
@@ -31,7 +32,7 @@ type DeviceOptions = {
 };
 
 const defaultPublish = (topic: string, payload: unknown) => {
-    console.log("[PUBLISH]", topic, JSON.stringify(payload));
+    logger.debug({ topic, payload }, "publish");
 };
 
 const MAX_ARRIVALS_PER_LINE = 3;
@@ -54,14 +55,16 @@ const buildFanoutMaps = (
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
         if (!provider) {
-            console.warn(
-                `[ENGINE] Unknown provider ${sub.provider} for device ${sub.deviceId}`,
+            logger.warn(
+                { provider: sub.provider, deviceId: sub.deviceId },
+                "unknown provider",
             );
             continue;
         }
         if (!provider.supports(sub.type)) {
-            console.warn(
-                `[ENGINE] Provider ${sub.provider} does not support type ${sub.type}`,
+            logger.warn(
+                { provider: sub.provider, type: sub.type },
+                "provider does not support type",
             );
             continue;
         }
@@ -393,7 +396,7 @@ export function startAggregatorEngine(
             const { providerId } = parseKeySegments(key);
             const provider = providers.get(providerId);
             if (!provider) {
-                console.warn(`[ENGINE] No provider found for key ${key}`);
+                logger.warn({ key }, "no provider found for key");
                 return;
             }
             const now = Date.now();
@@ -404,7 +407,7 @@ export function startAggregatorEngine(
                     now,
                     key,
                     log: (...args: unknown[]) =>
-                        console.log("[FETCH]", key, ...args),
+                        logger.debug({ key }, String(args[0] ?? "")),
                 });
                 metrics.histogram(
                     "engine.fetch.duration",
@@ -425,7 +428,7 @@ export function startAggregatorEngine(
                     }
                 }
             } catch (err) {
-                console.error(`[ENGINE] fetch failed for key ${key}:`, err);
+                logger.error({ key, err }, "fetch failed");
                 metrics.increment("engine.fetch.error", [providerTag]);
             } finally {
                 inflight.delete(key);
@@ -451,8 +454,9 @@ export function startAggregatorEngine(
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
                     const ttlRemaining = entry ? entry.expiresAt - now : -1;
-                    console.log(
-                        `[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`,
+                    logger.debug(
+                        { key, ttlRemaining, hasEntry: !!entry },
+                        "cache miss",
                     );
                     metrics.increment("engine.cache.miss");
                     void fetchKey(key);
