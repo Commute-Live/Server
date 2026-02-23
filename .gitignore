@@ -6,3 +6,6 @@ app.env
 .DS_Store
 data/.DS_Store
 data/cta-subway/stop_times_og.txt
+# deploy keys
+commute_live_deploy_key
+commute_live_deploy_key.pub
