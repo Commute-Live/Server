@@ -33,6 +33,9 @@ export function registerStops(app: Hono, _deps: dependency) {
         return Number.isFinite(raw) ? Math.max(1, Math.min(max, Math.floor(raw))) : def;
     };
 
+    const normalizeSeptaLineLabel = (value: unknown) =>
+        typeof value === "string" ? value.trim().toUpperCase() : "";
+
     app.get("/stops", (c) => {
         const q = (c.req.query("q") ?? "").trim().toLowerCase();
         const limit = parseLimit(c.req.query("limit"), 300, 1000);
@@ -233,11 +236,48 @@ export function registerStops(app: Hono, _deps: dependency) {
     });
 
     // SEPTA lines by selected stop (station-first flow)
-    app.get("/providers/philly/stops/train/:stopId/lines", (c) => {
+    app.get("/providers/philly/stops/train/:stopId/lines", async (c) => {
         const stopId = (c.req.param("stopId") ?? "").trim();
         if (!stopId) return c.json({ error: "stopId is required" }, 400);
+        const directionRaw = (c.req.query("direction") ?? "").trim().toUpperCase();
+        const direction = directionRaw === "N" || directionRaw === "S" ? directionRaw : "";
+
+        // Try live lines from SEPTA Arrivals first so users only see lines with active service now.
+        const stationName = resolveSeptaRailStopName(stopId);
+        if (stationName) {
+            try {
+                const search = new URLSearchParams({
+                    station: stationName,
+                    results: "30",
+                });
+                if (direction) search.set("direction", direction);
+                const url = `https://www3.septa.org/api/Arrivals/index.php?${search.toString()}`;
+                const res = await fetch(url);
+                if (res.ok) {
+                    const raw = (await res.json()) as Record<string, Array<Record<string, unknown>>>;
+                    const firstKey = Object.keys(raw)[0];
+                    const firstRow = firstKey ? raw[firstKey]?.[0] : undefined;
+                    const list = direction === "S"
+                        ? (firstRow?.Southbound as Array<Record<string, unknown>> | undefined) ?? []
+                        : (firstRow?.Northbound as Array<Record<string, unknown>> | undefined) ?? [];
+                    const liveLines = Array.from(
+                        new Set(
+                            list
+                                .map((item) => normalizeSeptaLineLabel(item?.line))
+                                .filter((line) => line.length > 0),
+                        ),
+                    );
+                    if (liveLines.length > 0) {
+                        return c.json({ stopId, direction: direction || null, lines: liveLines, source: "live" });
+                    }
+                }
+            } catch {
+                // Fall through to static lines.
+            }
+        }
+
         const lines = listSeptaRailLinesForStop(stopId).map((line) => line.id);
-        return c.json({ stopId, lines });
+        return c.json({ stopId, direction: direction || null, lines, source: "static" });
     });
 
     app.get("/providers/philly/stops/rail/:stopId/lines", (c) => {
