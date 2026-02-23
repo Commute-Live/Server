@@ -337,6 +337,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         try {
             const allDeviceIds = [...deviceToKeys.keys()];
             const activeIds = await getActiveDeviceIds(allDeviceIds);
+            metrics.gauge("engine.devices.active", activeIds.size);
             for (const [key, deviceIds] of fanout.entries()) {
                 const anyActive = [...deviceIds].some((id) => activeIds.has(id));
                 if (!anyActive) continue;
@@ -378,7 +379,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
-        metrics.gauge("engine.devices.active", deviceToKeys.size);
+        metrics.gauge("engine.devices.registered", deviceToKeys.size);
         metrics.gauge("engine.fanout.keys", fanout.size);
         await scheduleFetches();
     };
