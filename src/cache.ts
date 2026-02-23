@@ -159,10 +159,11 @@ export async function markDeviceInactiveInCache(deviceId: string): Promise<void>
 export async function getActiveDeviceIds(deviceIds: string[]): Promise<Set<string>> {
     if (deviceIds.length === 0) return new Set();
     const client = await getRedisClient();
-    const results = await Promise.all(deviceIds.map((id) => client.exists(deviceActiveKey(id))));
+    const keys = deviceIds.map(deviceActiveKey);
+    const results = await client.mGet(keys);
     const active = new Set<string>();
     deviceIds.forEach((id, i) => {
-        if (results[i] === 1) active.add(id);
+        if (results[i] !== null) active.add(id);
     });
     return active;
 }
