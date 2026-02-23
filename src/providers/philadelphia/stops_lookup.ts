@@ -12,6 +12,7 @@ type SeptaCache = {
     routeAliasesById: Map<string, string[]>;
     routeToStops: Map<string, string[]>;
     stopToRoutes: Map<string, string[]>;
+    stopToRoutesByDirection: Map<string, string[]>;
     stopNameById: Map<string, string>;
 };
 
@@ -76,6 +77,7 @@ function buildCache(mode: Mode): SeptaCache {
             routeAliasesById: new Map(),
             routeToStops: new Map(),
             stopToRoutes: new Map(),
+            stopToRoutesByDirection: new Map(),
             stopNameById: new Map(),
         };
     }
@@ -90,6 +92,7 @@ function buildCache(mode: Mode): SeptaCache {
             routeAliasesById: new Map(),
             routeToStops: new Map(),
             stopToRoutes: new Map(),
+            stopToRoutesByDirection: new Map(),
             stopNameById: new Map(),
         };
     }
@@ -104,12 +107,14 @@ function buildCache(mode: Mode): SeptaCache {
             routeAliasesById: new Map(),
             routeToStops: new Map(),
             stopToRoutes: new Map(),
+            stopToRoutesByDirection: new Map(),
             stopNameById: new Map(),
         };
     }
 
     const routeIdIdx = routeStopsHeader.indexOf("route_id");
     const stopIdIdx = routeStopsHeader.indexOf("stop_id");
+    const directionIdIdx = routeStopsHeader.indexOf("direction_id");
     const routesRouteIdIdx = routesHeader.indexOf("route_id");
     const shortNameIdx = routesHeader.indexOf("route_short_name");
     const longNameIdx = routesHeader.indexOf("route_long_name");
@@ -118,6 +123,15 @@ function buildCache(mode: Mode): SeptaCache {
 
     const routeToStops = new Map<string, string[]>();
     const routeToStopSet = new Map<string, Set<string>>();
+    const stopToRouteSetByDirection = new Map<string, Set<string>>();
+    const directionIdToCardinal = (value: string) => {
+        const v = value.trim();
+        if (mode === "rail") {
+            if (v === "0") return "N";
+            if (v === "1") return "S";
+        }
+        return "";
+    };
     for (let i = 1; i < routeStopsRows.length; i++) {
         const row = routeStopsRows[i];
         if (!row) continue;
@@ -126,6 +140,14 @@ function buildCache(mode: Mode): SeptaCache {
         if (!routeId || !stopId) continue;
         if (!routeToStopSet.has(routeId)) routeToStopSet.set(routeId, new Set());
         routeToStopSet.get(routeId)!.add(stopId);
+        if (directionIdIdx >= 0) {
+            const cardinal = directionIdToCardinal(row[directionIdIdx] ?? "");
+            if (cardinal) {
+                const key = `${stopId}:${cardinal}`;
+                if (!stopToRouteSetByDirection.has(key)) stopToRouteSetByDirection.set(key, new Set());
+                stopToRouteSetByDirection.get(key)!.add(routeId);
+            }
+        }
     }
     for (const [routeId, set] of routeToStopSet.entries()) {
         routeToStops.set(routeId, Array.from(set));
@@ -187,8 +209,12 @@ function buildCache(mode: Mode): SeptaCache {
     for (const [stopId, routeSet] of stopToRouteSet.entries()) {
         stopToRoutes.set(stopId, Array.from(routeSet).sort((a, b) => a.localeCompare(b)));
     }
+    const stopToRoutesByDirection = new Map<string, string[]>();
+    for (const [key, routeSet] of stopToRouteSetByDirection.entries()) {
+        stopToRoutesByDirection.set(key, Array.from(routeSet).sort((a, b) => a.localeCompare(b)));
+    }
 
-    return { routes, routeLabelById, routeAliasesById, routeToStops, stopToRoutes, stopNameById };
+    return { routes, routeLabelById, routeAliasesById, routeToStops, stopToRoutes, stopToRoutesByDirection, stopNameById };
 }
 
 function getCache(mode: Mode): SeptaCache {
@@ -263,6 +289,14 @@ export function listSeptaBusLinesForStop(stopId: string): SeptaRouteOption[] {
 
 export function listSeptaRailLinesForStop(stopId: string): SeptaRouteOption[] {
     return queryLinesForStop("rail", stopId);
+}
+
+export function listSeptaRailLinesForStopByDirection(stopId: string, direction: "N" | "S"): SeptaRouteOption[] {
+    const normalizedStopId = stopId.trim();
+    if (!normalizedStopId) return [];
+    const cache = getCache("rail");
+    const routeIds = cache.stopToRoutesByDirection.get(`${normalizedStopId}:${direction}`) ?? [];
+    return routeIds.map((id) => ({ id, label: cache.routeLabelById.get(id) ?? id }));
 }
 
 export function resolveSeptaRailStopName(stopOrName: string): string | null {
