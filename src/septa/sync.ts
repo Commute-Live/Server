@@ -10,6 +10,8 @@ import { logger } from "../logger.ts";
 import { normalizeDirection, normalizeRouteId } from "./catalog.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
+const BUS_TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
+const RAIL_TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septarail-pa-us/Trip/print.php";
 
 type DbLike = {
     select: Function;
@@ -40,6 +42,15 @@ type RouteStopRow = {
     stopId: string;
     direction: string;
     stopSequence: number | null;
+};
+
+type PrintTripUpdate = {
+    routeId?: string;
+    directionId?: string;
+    arrivals: Array<{
+        stopId?: string;
+        stopSequence?: number;
+    }>;
 };
 
 const parseJsonSafe = (input: string): unknown => {
@@ -81,6 +92,26 @@ const readField = (record: Record<string, unknown>, keys: string[]) => {
 };
 
 const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ");
+const isLikelyRailCode = (value: string) => /^[A-Z0-9]{2,5}$/.test(value);
+
+const pickRailRouteCode = (record: Record<string, unknown>): string => {
+    const candidates = [
+        "route_id",
+        "route",
+        "linecode",
+        "line_code",
+        "lineabbr",
+        "line_abbr",
+        "route_short_name",
+        "line",
+    ];
+    for (const key of candidates) {
+        const raw = readField(record, [key]).trim().toUpperCase().replace(/\s+/g, "");
+        if (!raw) continue;
+        if (isLikelyRailCode(raw)) return raw;
+    }
+    return "";
+};
 
 const classifySurfaceMode = (record: Record<string, unknown>, routeId: string): SeptaMode => {
     const routeType = readField(record, ["route_type", "routetype"]).trim();
@@ -98,6 +129,51 @@ async function fetchRecords(url: string): Promise<Array<Record<string, unknown>>
     }
     const text = await res.text();
     return toRecords(parseJsonSafe(text));
+}
+
+const parseTripPrintUpdates = (body: string): PrintTripUpdate[] => {
+    const updates: PrintTripUpdate[] = [];
+    const entityMatches = body.match(/entity\s*\{[\s\S]*?\n\}/g) ?? [];
+    for (const entity of entityMatches) {
+        const tuMatch = entity.match(/trip_update\s*\{([\s\S]*?)\n\s*\}/);
+        if (!tuMatch?.[1]) continue;
+        const tripUpdateBody = tuMatch[1];
+        const routeId = tripUpdateBody.match(/route_id:\s*"([^"]+)"/)?.[1];
+        const directionId = tripUpdateBody.match(/direction_id:\s*(\d+)/)?.[1];
+        const stopBlocks =
+            tripUpdateBody.match(/stop_time_update\s*\{([\s\S]*?)\n\s*\}/g) ?? [];
+        const arrivals = stopBlocks.map((block) => {
+            const stopId = block.match(/stop_id:\s*"([^"]+)"/)?.[1];
+            const stopSequenceRaw = block.match(/stop_sequence:\s*(\d+)/)?.[1];
+            const stopSequence =
+                stopSequenceRaw && !Number.isNaN(Number(stopSequenceRaw))
+                    ? Number(stopSequenceRaw)
+                    : undefined;
+            return { stopId, stopSequence };
+        });
+        updates.push({ routeId, directionId, arrivals });
+    }
+    return updates;
+};
+
+async function fetchPrintTripUpdates(url: string): Promise<PrintTripUpdate[]> {
+    const res = await fetch(url);
+    if (!res.ok) {
+        throw new Error(`SEPTA GTFS-RT print ${url} -> ${res.status} ${res.statusText}`);
+    }
+    const text = await res.text();
+    return parseTripPrintUpdates(text);
+}
+
+async function fetchStopNameByStopId(stopId: string): Promise<string | null> {
+    const url = `${SEPTA_BASE}/Stops/index.php?stop_id=${encodeURIComponent(stopId)}`;
+    const rows = await fetchRecords(url);
+    for (const row of rows) {
+        const name =
+            readField(row, ["stop_name", "name", "station", "stop"]) || "";
+        if (name.trim()) return normalizeName(name);
+    }
+    return null;
 }
 
 export async function runSeptaSync(db: DbLike): Promise<{
@@ -139,15 +215,40 @@ export async function runSeptaSync(db: DbLike): Promise<{
             });
         }
 
-        const railRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
+        const railRows = await fetchRecords(`${SEPTA_BASE}/RRSchedules/index.php`);
         for (const record of railRows) {
-            const routeRaw =
-                readField(record, ["route_id", "route", "line", "route_short_name"]) ||
-                readField(record, ["line"]);
-            const routeId = normalizeRouteId("rail", routeRaw);
+            const routeId = pickRailRouteCode(record);
             if (!routeId) continue;
-            const shortName = readField(record, ["route_short_name", "line"]) || routeId;
-            const longName = readField(record, ["route_long_name", "route_name", "description"]);
+            const shortName =
+                readField(record, ["route_short_name", "lineabbr", "line_abbr"]) ||
+                routeId;
+            const longName =
+                readField(record, [
+                    "line",
+                    "service",
+                    "route_long_name",
+                    "route_name",
+                    "description",
+                ]) || routeId;
+            routeMap.set(`rail:${routeId}`, {
+                mode: "rail",
+                id: routeId,
+                shortName,
+                longName,
+                displayName: longName || shortName || routeId,
+            });
+        }
+
+        const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
+        for (const record of trainRows) {
+            const routeId = pickRailRouteCode(record);
+            if (!routeId) continue;
+            const existing = routeMap.get(`rail:${routeId}`);
+            const longName =
+                readField(record, ["line", "service", "destination"]) ||
+                existing?.longName ||
+                routeId;
+            const shortName = existing?.shortName || routeId;
             routeMap.set(`rail:${routeId}`, {
                 mode: "rail",
                 id: routeId,
@@ -167,13 +268,24 @@ export async function runSeptaSync(db: DbLike): Promise<{
                         readField(record, ["stop_id", "stopid", "stop_code", "id"]) ||
                         readField(record, ["station", "stop_name", "name"]);
                     const stopNameRaw =
-                        readField(record, ["stop_name", "name", "station", "stop"]) ||
+                        readField(record, [
+                            "stop_name",
+                            "stopname",
+                            "name",
+                            "station",
+                            "stop",
+                        ]) ||
                         stopIdRaw;
                     const stopId = stopIdRaw.trim();
                     const stopName = normalizeName(stopNameRaw);
                     if (!stopId || !stopName) continue;
                     const latRaw = readField(record, ["stop_lat", "lat", "latitude"]);
-                    const lonRaw = readField(record, ["stop_lon", "lon", "longitude"]);
+                    const lonRaw = readField(record, [
+                        "stop_lon",
+                        "lon",
+                        "lng",
+                        "longitude",
+                    ]);
                     const lat = latRaw && !Number.isNaN(Number(latRaw)) ? latRaw : null;
                     const lon = lonRaw && !Number.isNaN(Number(lonRaw)) ? lonRaw : null;
 
@@ -213,6 +325,84 @@ export async function runSeptaSync(db: DbLike): Promise<{
                     err instanceof Error ? err.message : `Stops fetch failed for ${route.id}`;
                 errors.push(message);
                 logger.warn({ route: route.id, mode: route.mode, err }, "SEPTA sync route stops failed");
+            }
+        }
+
+        if (routeStopMap.size === 0) {
+            const seenStopKeys = new Set<string>();
+            const addFromPrint = (
+                mode: SeptaMode,
+                updates: PrintTripUpdate[],
+            ) => {
+                for (const update of updates) {
+                    const rawRouteId = (update.routeId ?? "").trim();
+                    if (!rawRouteId) continue;
+                    const routeId = normalizeRouteId(
+                        mode === "rail" ? "rail" : "bus",
+                        rawRouteId,
+                    );
+                    if (!routeId) continue;
+                    const routedMode =
+                        mode === "rail"
+                            ? "rail"
+                            : classifySurfaceMode({}, routeId);
+                    const routeKey = `${routedMode}:${routeId}`;
+                    if (!routeMap.has(routeKey)) {
+                        routeMap.set(routeKey, {
+                            mode: routedMode,
+                            id: routeId,
+                            shortName: routeId,
+                            longName: "",
+                            displayName: routeId,
+                        });
+                    }
+                    const direction = normalizeDirection(
+                        routedMode,
+                        update.directionId ?? "",
+                    );
+                    for (const arrival of update.arrivals) {
+                        const stopId = (arrival.stopId ?? "").trim();
+                        if (!stopId) continue;
+                        routeStopMap.set(
+                            `${routedMode}:${routeId}:${stopId}:${direction}`,
+                            {
+                                mode: routedMode,
+                                routeId,
+                                stopId,
+                                direction,
+                                stopSequence: arrival.stopSequence ?? null,
+                            },
+                        );
+                        seenStopKeys.add(`${routedMode}:${stopId}`);
+                    }
+                }
+            };
+
+            const [surfacePrint, railPrint] = await Promise.all([
+                fetchPrintTripUpdates(BUS_TRIP_PRINT_URL).catch(
+                    () => [] as PrintTripUpdate[],
+                ),
+                fetchPrintTripUpdates(RAIL_TRIP_PRINT_URL).catch(
+                    () => [] as PrintTripUpdate[],
+                ),
+            ]);
+            addFromPrint("bus", surfacePrint);
+            addFromPrint("rail", railPrint);
+
+            for (const key of seenStopKeys) {
+                const [modeRaw, stopId] = key.split(":", 2);
+                const mode = (modeRaw as SeptaMode) ?? "bus";
+                if (!stopId) continue;
+                const stopName =
+                    (await fetchStopNameByStopId(stopId).catch(() => null)) ??
+                    stopId;
+                stopMap.set(`${mode}:${stopId}`, {
+                    mode,
+                    id: stopId,
+                    name: stopName,
+                    lat: null,
+                    lon: null,
+                });
             }
         }
 
