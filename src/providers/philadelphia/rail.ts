@@ -109,11 +109,18 @@ const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = D
         .filter((a) => (direction ? a.direction === direction : true))
         .map((a) => {
             const arrivalIso = parseTimeToIso(a.depart_time ?? a.sched_time, nowMs);
+            const scheduledIso = parseTimeToIso(a.sched_time, nowMs);
+            const arrivalTs = arrivalIso ? Date.parse(arrivalIso) : NaN;
+            const scheduledTs = scheduledIso ? Date.parse(scheduledIso) : NaN;
+            const delaySeconds =
+                Number.isFinite(arrivalTs) && Number.isFinite(scheduledTs)
+                    ? Math.round((arrivalTs - scheduledTs) / 1000)
+                    : null;
             const destination = cleanDirectionLabel(a.destination) || cleanDirectionLabel(a.next_station) || undefined;
             return {
                 arrivalTime: arrivalIso,
-                scheduledTime: arrivalIso,
-                delaySeconds: null,
+                scheduledTime: scheduledIso ?? null,
+                delaySeconds,
                 destination,
             };
         })

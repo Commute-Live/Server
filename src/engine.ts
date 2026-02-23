@@ -103,7 +103,7 @@ const stripArrivalTimeForDevice = (
         }
 
         return {
-            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : 0,
+            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : undefined,
             destination: arrival.destination ?? fallbackDestination,
             eta,
         };
@@ -111,7 +111,7 @@ const stripArrivalTimeForDevice = (
 
     while (normalized.length < MAX_ARRIVALS_PER_LINE) {
         normalized.push({
-            delaySeconds: 0,
+            delaySeconds: undefined,
             destination: fallbackDestination,
             eta: "--",
         });
