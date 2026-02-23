@@ -133,28 +133,118 @@ async function fetchRecords(url: string): Promise<Array<Record<string, unknown>>
 
 const parseTripPrintUpdates = (body: string): PrintTripUpdate[] => {
     const updates: PrintTripUpdate[] = [];
-    const entityMatches = body.match(/entity\s*\{[\s\S]*?\n\}/g) ?? [];
-    for (const entity of entityMatches) {
-        const tuMatch = entity.match(/trip_update\s*\{([\s\S]*?)\n\s*\}/);
-        if (!tuMatch?.[1]) continue;
-        const tripUpdateBody = tuMatch[1];
-        const routeId = tripUpdateBody.match(/route_id:\s*"([^"]+)"/)?.[1];
-        const directionId = tripUpdateBody.match(/direction_id:\s*(\d+)/)?.[1];
-        const stopBlocks =
-            tripUpdateBody.match(/stop_time_update\s*\{([\s\S]*?)\n\s*\}/g) ?? [];
-        const arrivals = stopBlocks.map((block) => {
-            const stopId = block.match(/stop_id:\s*"([^"]+)"/)?.[1];
-            const stopSequenceRaw = block.match(/stop_sequence:\s*(\d+)/)?.[1];
-            const stopSequence =
-                stopSequenceRaw && !Number.isNaN(Number(stopSequenceRaw))
-                    ? Number(stopSequenceRaw)
-                    : undefined;
-            return { stopId, stopSequence };
-        });
-        updates.push({ routeId, directionId, arrivals });
+    const lines = body.split(/\r?\n/);
+    let inTripUpdate = false;
+    let depth = 0;
+    let routeId: string | undefined;
+    let directionId: string | undefined;
+    let currentStopId: string | undefined;
+    let currentStopSequence: number | undefined;
+    let arrivals: Array<{ stopId?: string; stopSequence?: number }> = [];
+
+    const finalizeStop = () => {
+        if (currentStopId) {
+            arrivals.push({
+                stopId: currentStopId,
+                stopSequence: currentStopSequence,
+            });
+        }
+        currentStopId = undefined;
+        currentStopSequence = undefined;
+    };
+
+    const finalizeTrip = () => {
+        finalizeStop();
+        if (routeId && arrivals.length > 0) {
+            updates.push({ routeId, directionId, arrivals });
+        }
+        routeId = undefined;
+        directionId = undefined;
+        arrivals = [];
+    };
+
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+
+        if (!inTripUpdate) {
+            if (line.startsWith("trip_update")) {
+                inTripUpdate = true;
+                depth =
+                    (line.match(/\{/g) ?? []).length -
+                    (line.match(/\}/g) ?? []).length;
+                routeId = undefined;
+                directionId = undefined;
+                currentStopId = undefined;
+                currentStopSequence = undefined;
+                arrivals = [];
+            }
+            continue;
+        }
+
+        const routeMatch = line.match(/^route_id:\s*"([^"]+)"/);
+        if (routeMatch?.[1]) routeId = routeMatch[1];
+
+        const directionMatch = line.match(/^direction_id:\s*(\d+)/);
+        if (directionMatch?.[1]) directionId = directionMatch[1];
+
+        if (line.startsWith("stop_time_update")) {
+            finalizeStop();
+        }
+
+        const stopMatch = line.match(/^stop_id:\s*"([^"]+)"/);
+        if (stopMatch?.[1]) currentStopId = stopMatch[1];
+
+        const seqMatch = line.match(/^stop_sequence:\s*(\d+)/);
+        if (seqMatch?.[1] && !Number.isNaN(Number(seqMatch[1]))) {
+            currentStopSequence = Number(seqMatch[1]);
+        }
+
+        depth += (line.match(/\{/g) ?? []).length;
+        depth -= (line.match(/\}/g) ?? []).length;
+        if (depth <= 0) {
+            finalizeTrip();
+            inTripUpdate = false;
+            depth = 0;
+        }
     }
+
+    if (inTripUpdate) finalizeTrip();
     return updates;
 };
+
+function extractSurfaceRoutesFromTransitViewAll(
+    records: Array<Record<string, unknown>>,
+): Array<{ routeId: string; mode: SeptaMode }> {
+    const out = new Map<string, { routeId: string; mode: SeptaMode }>();
+    for (const record of records) {
+        const routesValue = record.routes;
+        if (!Array.isArray(routesValue)) continue;
+        for (const routeObj of routesValue) {
+            if (!routeObj || typeof routeObj !== "object") continue;
+            for (const [routeKey, vehiclesRaw] of Object.entries(
+                routeObj as Record<string, unknown>,
+            )) {
+                const routeId = normalizeRouteId("bus", routeKey);
+                if (!routeId) continue;
+                let mode: SeptaMode = /^(T\d+|G\d+)/i.test(routeId)
+                    ? "trolley"
+                    : "bus";
+                if (Array.isArray(vehiclesRaw) && vehiclesRaw.length > 0) {
+                    const first = vehiclesRaw[0];
+                    if (first && typeof first === "object") {
+                        mode = classifySurfaceMode(
+                            first as Record<string, unknown>,
+                            routeId,
+                        );
+                    }
+                }
+                out.set(routeId, { routeId, mode });
+            }
+        }
+    }
+    return Array.from(out.values());
+}
 
 async function fetchPrintTripUpdates(url: string): Promise<PrintTripUpdate[]> {
     const res = await fetch(url);
@@ -170,7 +260,13 @@ async function fetchStopNameByStopId(stopId: string): Promise<string | null> {
     const rows = await fetchRecords(url);
     for (const row of rows) {
         const name =
-            readField(row, ["stop_name", "name", "station", "stop"]) || "";
+            readField(row, [
+                "stop_name",
+                "stopname",
+                "name",
+                "station",
+                "stop",
+            ]) || "";
         if (name.trim()) return normalizeName(name);
     }
     return null;
@@ -197,21 +293,14 @@ export async function runSeptaSync(db: DbLike): Promise<{
 
     try {
         const surfaceRows = await fetchRecords(`${SEPTA_BASE}/TransitViewAll/index.php`);
-        for (const record of surfaceRows) {
-            const routeRaw =
-                readField(record, ["route_id", "route", "line", "route_short_name"]) ||
-                readField(record, ["line", "label", "route"]);
-            const routeId = normalizeRouteId("bus", routeRaw);
-            if (!routeId) continue;
-            const mode = classifySurfaceMode(record, routeId);
-            const shortName = readField(record, ["route_short_name", "line"]) || routeId;
-            const longName = readField(record, ["route_long_name", "route_name", "description"]);
-            routeMap.set(`${mode}:${routeId}`, {
-                mode,
-                id: routeId,
-                shortName,
-                longName,
-                displayName: longName || shortName || routeId,
+        const surfaceRoutes = extractSurfaceRoutesFromTransitViewAll(surfaceRows);
+        for (const route of surfaceRoutes) {
+            routeMap.set(`${route.mode}:${route.routeId}`, {
+                mode: route.mode,
+                id: route.routeId,
+                shortName: route.routeId,
+                longName: route.routeId,
+                displayName: route.routeId,
             });
         }
 
