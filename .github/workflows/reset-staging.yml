@@ -5,6 +5,9 @@ on:
     - cron: "0 6 * * *" # 6:00 AM UTC daily
   workflow_dispatch: # allow manual trigger
 
+permissions:
+  contents: write
+
 jobs:
   reset:
     runs-on: ubuntu-latest
@@ -15,5 +18,5 @@ jobs:
           ref: main
           fetch-depth: 0
 
-      - name: Force-push main onto stage
-        run: git push origin HEAD:stage --force
+      - name: Force-push main onto staging
+        run: git push origin HEAD:staging --force
