@@ -1,5 +1,8 @@
 import tracer from "dd-trace";
 tracer.init(); // initialized in a different file to avoid hoisting.
+tracer.use("redis", {
+    service: process.env.DD_REDIS_SERVICE ?? "redis",
+});
 
 import { createMiddleware } from "hono/factory";
 import { routePath } from "hono/route";
