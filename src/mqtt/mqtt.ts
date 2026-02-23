@@ -255,3 +255,17 @@ export function getRecentMqttDebugEvents(limit = 200) {
     const safeLimit = Math.max(1, Math.min(1000, Math.floor(limit)));
     return debugEvents.slice(-safeLimit);
 }
+
+export function getLatestOutgoingCommandEvent(deviceId: string) {
+    const normalizedId = deviceId.trim();
+    if (!normalizedId) return null;
+    const topic = `/device/${normalizedId}/commands`;
+    for (let i = debugEvents.length - 1; i >= 0; i -= 1) {
+        const event = debugEvents[i];
+        if (!event) continue;
+        if (event.direction !== "outgoing") continue;
+        if (event.topic !== topic) continue;
+        return event;
+    }
+    return null;
+}

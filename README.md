@@ -109,3 +109,5 @@ docker compose down -v
 ```bash
 docker exec -it commutelive-postgres psql -U commute -d commutelive
 ```
+
+Great!
