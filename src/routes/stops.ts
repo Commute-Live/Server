@@ -9,6 +9,7 @@ import {
     listSeptaBusStops,
     listSeptaBusStopsForRoute,
     listSeptaRailLinesForStop,
+    resolveSeptaRailRouteId,
     listSeptaRailRoutes,
     listSeptaRailStops,
     listSeptaRailStopsForRoute,
@@ -263,7 +264,7 @@ export function registerStops(app: Hono, _deps: dependency) {
                     const liveLines = Array.from(
                         new Set(
                             list
-                                .map((item) => normalizeSeptaLineLabel(item?.line))
+                                .map((item) => resolveSeptaRailRouteId(normalizeSeptaLineLabel(item?.line)))
                                 .filter((line) => line.length > 0),
                         ),
                     );

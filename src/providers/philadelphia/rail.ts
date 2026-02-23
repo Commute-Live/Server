@@ -1,6 +1,6 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
-import { resolveSeptaRailRouteAliases, resolveSeptaRailStopName } from "./stops_lookup.ts";
+import { resolveSeptaRailRouteAliases, resolveSeptaRailRouteId, resolveSeptaRailStopName } from "./stops_lookup.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
@@ -105,11 +105,30 @@ const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
     return null;
 };
 
+const parseStatusToArrivalIso = (statusRaw?: string | null, nowMs = Date.now()) => {
+    if (!statusRaw) return null;
+    const status = statusRaw.trim().toUpperCase();
+    if (!status) return null;
+    if (status === "DUE" || status === "ARR" || status === "ARRIVING") {
+        return new Date(nowMs).toISOString();
+    }
+    const minsMatch = status.match(/(\d+)\s*MIN/);
+    if (minsMatch?.[1]) {
+        const mins = Number(minsMatch[1]);
+        if (Number.isFinite(mins) && mins >= 0) {
+            return new Date(nowMs + mins * 60_000).toISOString();
+        }
+    }
+    return null;
+};
+
 const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = Date.now()) =>
     arr
         .filter((a) => (direction ? a.direction === direction : true))
         .map((a) => {
-            const arrivalIso = parseTimeToIso(a.depart_time ?? a.sched_time, nowMs);
+            const arrivalIso =
+                parseStatusToArrivalIso(a.status, nowMs) ??
+                parseTimeToIso(a.depart_time ?? a.sched_time, nowMs);
             const scheduledIso = parseTimeToIso(a.sched_time, nowMs);
             const arrivalTs = arrivalIso ? Date.parse(arrivalIso) : NaN;
             const scheduledTs = scheduledIso ? Date.parse(scheduledIso) : NaN;
@@ -152,10 +171,13 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
     const requestedLineRaw = normalizeLine(params.line);
+    const requestedLineId = resolveSeptaRailRouteId(requestedLineRaw);
     const requestedLineAliases = resolveSeptaRailRouteAliases(requestedLineRaw);
     const matchesRequestedLine = (line?: string | null) => {
         const value = normalizeLineForMatch(line);
         if (!value || requestedLineAliases.length === 0) return true;
+        const valueId = resolveSeptaRailRouteId(value);
+        if (requestedLineId && valueId && valueId === requestedLineId) return true;
         return requestedLineAliases.some((alias) => {
             const normalizedAlias = normalizeLineForMatch(alias);
             return (
@@ -193,6 +215,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
             stationKey: stationKey ?? "",
             direction: direction ?? "",
             requestedLine: requestedLineRaw || "",
+            requestedLineId: requestedLineId || "",
             requestedAliases: requestedLineAliases,
             rawNorth: northRaw.length,
             rawSouth: southRaw.length,
@@ -224,7 +247,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     return {
         payload: {
             provider: "septa-rail",
-            line: requestedLineRaw || normalizeLine(first?.line) || "SEPTA",
+            line: requestedLineId || resolveSeptaRailRouteId(first?.line ?? "") || normalizeLine(first?.line) || "SEPTA",
             stop: stationLabel,
             stopId: stationRaw,
             stopName: stationLabel,

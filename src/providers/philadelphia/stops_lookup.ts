@@ -296,3 +296,32 @@ export function resolveSeptaRailRouteAliases(routeOrLabel: string): string[] {
 
     return [normalized];
 }
+
+export function resolveSeptaRailRouteId(routeOrLabel: string): string {
+    const raw = routeOrLabel.trim();
+    if (!raw) return "";
+    const cache = getCache("rail");
+    const normalized = raw
+        .toUpperCase()
+        .replace(/\s+LINE$/i, "")
+        .replace(/\s+/g, " ");
+
+    if (cache.routeAliasesById.has(normalized)) {
+        return normalized;
+    }
+
+    for (const [routeId, aliases] of cache.routeAliasesById.entries()) {
+        if (aliases.includes(normalized)) {
+            return routeId;
+        }
+    }
+
+    return normalized;
+}
+
+export function resolveSeptaRailRouteLabel(routeOrId: string): string {
+    const routeId = resolveSeptaRailRouteId(routeOrId);
+    if (!routeId) return "";
+    const cache = getCache("rail");
+    return cache.routeLabelById.get(routeId) ?? routeId;
+}
