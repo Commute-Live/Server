@@ -7,6 +7,10 @@ import { getAuthContext } from "./auth.ts";
 
 export const requireDeviceAccess = (deps: dependency, paramName: string): MiddlewareHandler => {
     return async (c, next) => {
+        if (c.get("loadtest") === true) {
+            return next();
+        }
+
         const auth = getAuthContext(c);
         const deviceId = c.req.param(paramName);
         if (!deviceId) {

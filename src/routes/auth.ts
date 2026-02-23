@@ -14,6 +14,7 @@ import {
     revokeSessionByRefreshToken,
 } from "../auth/service.ts";
 import { authRequired, getAuthContext } from "../middleware/auth.ts";
+import { loadtestGuard } from "../middleware/loadtest.ts";
 
 const hashPassword = (password: string) =>
     createHash("sha256").update(password).digest("hex");
@@ -27,7 +28,7 @@ const parseCredentials = async (c: Context) => {
 
 export function registerAuth(app: Hono, deps: dependency) {
     // Register a device (client supplies the device id string)
-    app.post("/device/register", async (c) => {
+    app.post("/device/register", loadtestGuard, async (c) => {
         const body = await c.req.json().catch(() => null);
         const id = body?.id;
         if (!id || typeof id !== "string") {
@@ -54,7 +55,7 @@ export function registerAuth(app: Hono, deps: dependency) {
     });
 
     // Register a user account (no device linkage here)
-    app.post("/user/register", async (c) => {
+    app.post("/user/register", loadtestGuard, async (c) => {
         const body = await c.req.json().catch(() => null);
         const { email, password } = body ?? {};
 
@@ -86,7 +87,7 @@ export function registerAuth(app: Hono, deps: dependency) {
     });
 
     // Link an existing device to a user
-    app.post("/user/device/link", authRequired, async (c) => {
+    app.post("/user/device/link", loadtestGuard, authRequired, async (c) => {
         const auth = getAuthContext(c);
         const body = await c.req.json().catch(() => null);
         const { userId, deviceId } = body ?? {};
@@ -157,10 +158,10 @@ export function registerAuth(app: Hono, deps: dependency) {
         return c.json({ user: result.user }, 200);
     };
 
-    app.post("/auth/login", handleLogin);
+    app.post("/auth/login", loadtestGuard, handleLogin);
 
     // Backward-compatible alias
-    app.post("/user/login", handleLogin);
+    app.post("/user/login", loadtestGuard, handleLogin);
 
     app.post("/auth/refresh", async (c) => {
         const refreshToken = getCookie(c, REFRESH_COOKIE_NAME);
