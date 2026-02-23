@@ -1,0 +1,19 @@
+name: Reset Staging to Main
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 6:00 AM UTC daily
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Force-push main onto stage
+        run: git push origin HEAD:stage --force
