@@ -56,6 +56,8 @@ export interface AggregatorEngine {
     refreshKey(key: string): Promise<void>;
     refreshDevice(deviceId: string): Promise<void>;
     reloadSubscriptions(): Promise<void>;
+    markDeviceActive(deviceId: string): Promise<void>;
+    markDeviceInactive(deviceId: string): Promise<void>;
     getFanout(): FanoutMap;
     getCache(): Promise<Map<string, CacheEntry>>;
     stop(): void;

@@ -6,7 +6,7 @@ import { startDb } from "./db/db.ts";
 import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
 import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
-import { publish as mqttPublish } from "./mqtt/mqtt.ts";
+import { publish as mqttPublish, subscribePresence } from "./mqtt/mqtt.ts";
 import { initCache } from "./cache.ts";
 
 await initCache();
@@ -50,6 +50,11 @@ app.use(
 );
 
 registerRoutes(app, { sql, db, aggregator });
+
+subscribePresence((deviceId, online) => {
+    const action = online ? aggregator.markDeviceActive(deviceId) : aggregator.markDeviceInactive(deviceId);
+    action.catch((err) => console.error("[PRESENCE]", deviceId, online ? "online" : "offline", "failed:", err));
+});
 
 aggregator.ready
     .then(() => console.log("[ENGINE] aggregator ready"))

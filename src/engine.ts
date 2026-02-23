@@ -1,4 +1,4 @@
-import { cacheMap, getCacheEntry, markExpired, setCacheEntry } from "./cache.ts";
+import { cacheMap, getCacheEntry, getActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
@@ -312,7 +312,9 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 await setCacheEntry(key, result.payload, result.ttlSeconds, now);
                 const deviceIds = fanout.get(key);
                 if (deviceIds?.size) {
+                    const activeIds = await getActiveDeviceIds([...deviceIds]);
                     for (const deviceId of deviceIds) {
+                        if (!activeIds.has(deviceId)) continue;
                         await publishDeviceCommand(deviceId);
                     }
                 }
@@ -333,7 +335,11 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         refreshLoopRunning = true;
         const now = Date.now();
         try {
-            for (const key of fanout.keys()) {
+            const allDeviceIds = [...deviceToKeys.keys()];
+            const activeIds = await getActiveDeviceIds(allDeviceIds);
+            for (const [key, deviceIds] of fanout.entries()) {
+                const anyActive = [...deviceIds].some((id) => activeIds.has(id));
+                if (!anyActive) continue;
                 const entry = await getCacheEntry(key);
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
@@ -355,7 +361,10 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         if (pushLoopRunning) return;
         pushLoopRunning = true;
         try {
-            for (const deviceId of deviceToKeys.keys()) {
+            const allDeviceIds = [...deviceToKeys.keys()];
+            const activeIds = await getActiveDeviceIds(allDeviceIds);
+            for (const deviceId of allDeviceIds) {
+                if (!activeIds.has(deviceId)) continue;
                 await publishDeviceCommand(deviceId);
             }
         } finally {
@@ -414,10 +423,20 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         if (pushTimer) clearInterval(pushTimer);
     };
 
+    const markDeviceActive = (deviceId: string): Promise<void> => {
+        return markDeviceActiveInCache(deviceId);
+    };
+
+    const markDeviceInactive = (deviceId: string): Promise<void> => {
+        return markDeviceInactiveInCache(deviceId);
+    };
+
     return {
         refreshKey,
         refreshDevice,
         reloadSubscriptions,
+        markDeviceActive,
+        markDeviceInactive,
         getFanout: () => fanout,
         getCache: () => cacheMap(),
         stop,

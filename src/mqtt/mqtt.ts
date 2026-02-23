@@ -4,6 +4,7 @@ import { metrics } from "../metrics.ts";
 let client: MqttClient | null = null;
 let isConfigured = false;
 let debugSubscriptionsInstalled = false;
+let presenceHandler: ((deviceId: string, online: boolean) => void) | null = null;
 
 type MqttDebugDirection = "outgoing" | "incoming" | "state" | "error";
 type MqttDebugEvent = {
@@ -128,7 +129,7 @@ function getClient() {
 
         if (!debugSubscriptionsInstalled) {
             debugSubscriptionsInstalled = true;
-            for (const topic of [...getDebugTopics(), "$SYS/#"]) {
+            for (const topic of [...getDebugTopics(), "$SYS/#", "device/+/presence"]) {
                 client?.subscribe(topic, (err) => {
                     if (err) {
                         pushDebugEvent({
@@ -183,6 +184,14 @@ function getClient() {
 
         if (topic.startsWith("$SYS/")) return;
 
+        const presenceMatch = topic.match(/^device\/([^/]+)\/presence$/);
+        if (presenceMatch && presenceMatch[1] && presenceHandler) {
+            const deviceId = presenceMatch[1];
+            const online = Buffer.from(payload).toString("utf8").trim() === "online";
+            presenceHandler(deviceId, online);
+            return;
+        }
+
         pushDebugEvent({
             direction: "incoming",
             topic,
@@ -236,6 +245,10 @@ export async function publish(topic: string, payload: string) {
     });
 
     return true;
+}
+
+export function subscribePresence(handler: (deviceId: string, online: boolean) => void) {
+    presenceHandler = handler;
 }
 
 export function getRecentMqttDebugEvents(limit = 200) {

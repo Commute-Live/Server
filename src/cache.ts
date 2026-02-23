@@ -143,6 +143,30 @@ export const setProviderCacheBuffer = async (key: string, value: Buffer, ttlSeco
     });
 };
 
+// ── Device activity helpers ───────────────────────────────────────────────────
+const deviceActiveKey = (deviceId: string) => `device:active:${deviceId}`;
+
+export async function markDeviceActiveInCache(deviceId: string): Promise<void> {
+    const client = await getRedisClient();
+    await client.set(deviceActiveKey(deviceId), "1");
+}
+
+export async function markDeviceInactiveInCache(deviceId: string): Promise<void> {
+    const client = await getRedisClient();
+    await client.del(deviceActiveKey(deviceId));
+}
+
+export async function getActiveDeviceIds(deviceIds: string[]): Promise<Set<string>> {
+    if (deviceIds.length === 0) return new Set();
+    const client = await getRedisClient();
+    const results = await Promise.all(deviceIds.map((id) => client.exists(deviceActiveKey(id))));
+    const active = new Set<string>();
+    deviceIds.forEach((id, i) => {
+        if (results[i] === 1) active.add(id);
+    });
+    return active;
+}
+
 export const cacheMap = async (): Promise<Map<string, CacheEntry>> => {
     const client = await getRedisClient();
     const result = new Map<string, CacheEntry>();
