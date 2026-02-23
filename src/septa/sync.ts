@@ -157,31 +157,36 @@ function extractSurfaceRoutesFromTransitViewAll(
     records: Array<Record<string, unknown>>,
 ): Array<{ routeId: string; mode: SeptaMode }> {
     const out = new Map<string, { routeId: string; mode: SeptaMode }>();
+    const ingestRouteObject = (routeObj: Record<string, unknown>) => {
+        for (const [routeKey, vehiclesRaw] of Object.entries(routeObj)) {
+            const routeId = normalizeRouteId("bus", routeKey);
+            if (!routeId) continue;
+            let mode: SeptaMode = /^(T\d+|G\d+)/i.test(routeId)
+                ? "trolley"
+                : "bus";
+            if (Array.isArray(vehiclesRaw) && vehiclesRaw.length > 0) {
+                const first = vehiclesRaw[0];
+                if (first && typeof first === "object") {
+                    mode = classifySurfaceMode(
+                        first as Record<string, unknown>,
+                        routeId,
+                    );
+                }
+            }
+            out.set(routeId, { routeId, mode });
+        }
+    };
+
     for (const record of records) {
         const routesValue = record.routes;
-        if (!Array.isArray(routesValue)) continue;
-        for (const routeObj of routesValue) {
-            if (!routeObj || typeof routeObj !== "object") continue;
-            for (const [routeKey, vehiclesRaw] of Object.entries(
-                routeObj as Record<string, unknown>,
-            )) {
-                const routeId = normalizeRouteId("bus", routeKey);
-                if (!routeId) continue;
-                let mode: SeptaMode = /^(T\d+|G\d+)/i.test(routeId)
-                    ? "trolley"
-                    : "bus";
-                if (Array.isArray(vehiclesRaw) && vehiclesRaw.length > 0) {
-                    const first = vehiclesRaw[0];
-                    if (first && typeof first === "object") {
-                        mode = classifySurfaceMode(
-                            first as Record<string, unknown>,
-                            routeId,
-                        );
-                    }
-                }
-                out.set(routeId, { routeId, mode });
+        if (Array.isArray(routesValue)) {
+            for (const routeObj of routesValue) {
+                if (!routeObj || typeof routeObj !== "object") continue;
+                ingestRouteObject(routeObj as Record<string, unknown>);
             }
+            continue;
         }
+        ingestRouteObject(record);
     }
     return Array.from(out.values());
 }
