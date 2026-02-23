@@ -58,6 +58,17 @@ export interface AggregatorEngine {
     reloadSubscriptions(): Promise<void>;
     markDeviceActive(deviceId: string): Promise<void>;
     markDeviceInactive(deviceId: string): Promise<void>;
+    markDeviceHeartbeat(deviceId: string, nowMs?: number): Promise<void>;
+    getDeviceActivity(deviceId: string, nowMs?: number): Promise<{
+        deviceId: string;
+        status: "active" | "inactive" | "stale" | "unknown";
+        reason: string;
+        presence: "online" | "offline" | null;
+        lastSeenAt: string | null;
+        lastSeenMs: number | null;
+        heartbeatAgeMs: number | null;
+        heartbeatTimeoutMs: number;
+    }>;
     getFanout(): FanoutMap;
     getCache(): Promise<Map<string, CacheEntry>>;
     stop(): void;

@@ -1,4 +1,14 @@
-import { cacheMap, getCacheEntry, getActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
+import {
+    cacheMap,
+    getCacheEntry,
+    getActiveDeviceIds,
+    getDeviceActivitySnapshot,
+    markDeviceActiveInCache,
+    markDeviceInactiveInCache,
+    recordDeviceHeartbeatInCache,
+    markExpired,
+    setCacheEntry,
+} from "./cache.ts";
 import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
@@ -431,12 +441,22 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         return markDeviceInactiveInCache(deviceId);
     };
 
+    const markDeviceHeartbeat = (deviceId: string, nowMs = Date.now()): Promise<void> => {
+        return recordDeviceHeartbeatInCache(deviceId, nowMs);
+    };
+
+    const getDeviceActivity = (deviceId: string, nowMs = Date.now()) => {
+        return getDeviceActivitySnapshot(deviceId, nowMs);
+    };
+
     return {
         refreshKey,
         refreshDevice,
         reloadSubscriptions,
         markDeviceActive,
         markDeviceInactive,
+        markDeviceHeartbeat,
+        getDeviceActivity,
         getFanout: () => fanout,
         getCache: () => cacheMap(),
         stop,

@@ -22,7 +22,11 @@ export function registerDevice(app: Hono, deps: dependency) {
         if (!device) {
             return c.json({ error: "Device not found" }, 404);
         }
-        return c.json(device);
+        const activity = await deps.aggregator.getDeviceActivity(deviceId);
+        return c.json({
+            ...device,
+            activity,
+        });
     });
 
     app.get(

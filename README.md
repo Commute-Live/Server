@@ -56,6 +56,19 @@ In Datadog Logs, filter with:
 service:commutelive-api @message:mqtt_debug_event
 ```
 
+## Device Activity Model
+
+Device activity now uses heartbeat timeout as the source of truth.
+
+- `active`: heartbeat received within `DEVICE_HEARTBEAT_TIMEOUT_MS` (default `60000`).
+- `inactive`: heartbeat timed out, or explicit `presence=offline`.
+- `stale`: `presence=online` but no fresh heartbeat.
+- `unknown`: no heartbeat and no presence signal.
+
+MQTT topics consumed by the API:
+- `device/+/heartbeat`
+- `device/+/presence`
+
 ## Datadog Autodiscovery For Integrations
 
 `docker-compose.yml` now includes Datadog Autodiscovery labels for:

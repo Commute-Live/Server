@@ -5,6 +5,7 @@ let client: MqttClient | null = null;
 let isConfigured = false;
 let debugSubscriptionsInstalled = false;
 let presenceHandler: ((deviceId: string, online: boolean) => void) | null = null;
+let heartbeatHandler: ((deviceId: string, seenAtMs: number) => void) | null = null;
 
 type MqttDebugDirection = "outgoing" | "incoming" | "state" | "error";
 type MqttDebugEvent = {
@@ -129,7 +130,7 @@ function getClient() {
 
         if (!debugSubscriptionsInstalled) {
             debugSubscriptionsInstalled = true;
-            for (const topic of [...getDebugTopics(), "$SYS/#", "device/+/presence"]) {
+            for (const topic of [...getDebugTopics(), "$SYS/#", "device/+/presence", "device/+/heartbeat"]) {
                 client?.subscribe(topic, (err) => {
                     if (err) {
                         pushDebugEvent({
@@ -192,6 +193,23 @@ function getClient() {
             return;
         }
 
+        const heartbeatMatch = topic.match(/^device\/([^/]+)\/heartbeat$/);
+        if (heartbeatMatch && heartbeatMatch[1] && heartbeatHandler) {
+            const deviceId = heartbeatMatch[1];
+            const raw = Buffer.from(payload).toString("utf8");
+            let seenAtMs = Date.now();
+            try {
+                const parsed = JSON.parse(raw) as { uptimeMs?: number; ts?: number };
+                if (typeof parsed.ts === "number" && Number.isFinite(parsed.ts) && parsed.ts > 0) {
+                    seenAtMs = Math.floor(parsed.ts);
+                }
+            } catch {
+                // Heartbeat payload is still valid even if it is not JSON.
+            }
+            heartbeatHandler(deviceId, seenAtMs);
+            return;
+        }
+
         pushDebugEvent({
             direction: "incoming",
             topic,
@@ -249,6 +267,10 @@ export async function publish(topic: string, payload: string) {
 
 export function subscribePresence(handler: (deviceId: string, online: boolean) => void) {
     presenceHandler = handler;
+}
+
+export function subscribeHeartbeat(handler: (deviceId: string, seenAtMs: number) => void) {
+    heartbeatHandler = handler;
 }
 
 export function getRecentMqttDebugEvents(limit = 200) {
