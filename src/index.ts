@@ -8,6 +8,7 @@ import { startAggregatorEngine } from "./engine.ts";
 import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
 import { publish as mqttPublish, subscribePresence } from "./mqtt/mqtt.ts";
 import { initCache } from "./cache.ts";
+import { logger } from "./logger.ts";
 
 await initCache();
 
@@ -17,10 +18,13 @@ const aggregator = startAggregatorEngine({
     loadSubscriptions: () => loadSubscriptionsFromDb(db),
     publish: (topic, payload) => {
         void mqttPublish(topic, JSON.stringify(payload)).catch((err) => {
-            console.error("[MQTT] publish failed", {
-                topic,
-                err: err instanceof Error ? err.message : String(err),
-            });
+            logger.error(
+                {
+                    topic,
+                    err,
+                },
+                "MQTT publish failed",
+            );
         });
     },
 });
@@ -53,12 +57,12 @@ registerRoutes(app, { sql, db, aggregator });
 
 subscribePresence((deviceId, online) => {
     const action = online ? aggregator.markDeviceActive(deviceId) : aggregator.markDeviceInactive(deviceId);
-    action.catch((err) => console.error("[PRESENCE]", deviceId, online ? "online" : "offline", "failed:", err));
+    action.catch((err) => logger.error({ err, deviceId, online }, "presence update failed"));
 });
 
 aggregator.ready
-    .then(() => console.log("[ENGINE] aggregator ready"))
-    .catch((err) => console.error("[ENGINE] failed to start", err));
+    .then(() => logger.info("aggregator ready"))
+    .catch((err) => logger.error({ err }, "aggregator failed to start"));
 
 const server = Bun.serve({
     hostname: process.env.HOST ?? "0.0.0.0",
@@ -66,4 +70,4 @@ const server = Bun.serve({
     fetch: app.fetch,
 });
 
-console.log(`Listening on ${server.url}`);
+logger.info({ url: server.url.toString() }, "server listening");

@@ -1,6 +1,7 @@
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { resolveSeptaRailRouteAliases, resolveSeptaRailRouteId, resolveSeptaRailStopName } from "./stops_lookup.ts";
+import { logger } from "../../logger.ts";
 
 const SEPTA_BASE = "https://www3.septa.org/api";
 const CACHE_TTL_SECONDS = 20;
@@ -213,7 +214,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     const north = requestedLineAliases.length > 0 ? northRaw.filter((a) => matchesRequestedLine(a.line)) : northRaw;
     const south = requestedLineAliases.length > 0 ? southRaw.filter((a) => matchesRequestedLine(a.line)) : southRaw;
     if (SEPTA_DEBUG_FETCH) {
-        console.log("[SEPTA rail] fetch", {
+        logger.debug({
             url,
             stationRaw,
             stationQuery: station,
@@ -228,7 +229,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
             filteredSouth: south.length,
             sampleNorth: northRaw.slice(0, 5).map(compactArrival),
             sampleSouth: southRaw.slice(0, 5).map(compactArrival),
-        });
+        }, "SEPTA rail fetch");
     }
 
     const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
@@ -242,9 +243,14 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     if (requestedLineAliases.length > 0 && arrivals.length === 0) {
         const available = [...northRaw, ...southRaw].map((a) => normalizeLine(a.line)).filter((v) => v.length > 0);
         const sample = Array.from(new Set(available)).slice(0, 12);
-        console.log(
-            `[SEPTA rail] no arrivals after line filter stationRaw="${stationRaw}" stationQuery="${station}" stationKey="${stationKey ?? ""}" requestedLine="${requestedLineRaw}" aliases="${requestedLineAliases.join("|")}" availableLines=${sample.join(",")}`,
-        );
+        logger.warn({
+            stationRaw,
+            stationQuery: station,
+            stationKey: stationKey ?? "",
+            requestedLine: requestedLineRaw,
+            aliases: requestedLineAliases,
+            availableLines: sample,
+        }, "SEPTA rail: no arrivals after line filter");
     }
 
     const destination = cleanDirectionLabel(first?.destination) || cleanDirectionLabel(first?.next_station) || undefined;
