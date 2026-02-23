@@ -83,12 +83,15 @@ const extractNextArrivals = (payload: unknown) => {
             arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
             delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
             destination: typeof row.destination === "string" ? row.destination : undefined,
+            status: typeof row.status === "string" ? row.status : undefined,
+            direction: typeof row.direction === "string" ? row.direction : undefined,
+            line: typeof row.line === "string" ? row.line : undefined,
         };
     });
 };
 
 const stripArrivalTimeForDevice = (
-    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string }>,
     fetchedAt?: string,
     fallbackDestination?: string,
 ) => {
@@ -105,6 +108,9 @@ const stripArrivalTimeForDevice = (
         return {
             delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : undefined,
             destination: arrival.destination ?? fallbackDestination,
+            status: arrival.status,
+            direction: arrival.direction,
+            line: arrival.line,
             eta,
         };
     });
@@ -113,6 +119,9 @@ const stripArrivalTimeForDevice = (
         normalized.push({
             delaySeconds: undefined,
             destination: fallbackDestination,
+            status: undefined,
+            direction: undefined,
+            line: undefined,
             eta: "--",
         });
     }
@@ -157,7 +166,8 @@ type DeviceLinePayload = {
     stopId?: string;
     direction?: string;
     directionLabel?: string;
-    nextArrivals: Array<{ delaySeconds?: number; destination?: string; eta?: string }>;
+    status?: string;
+    nextArrivals: Array<{ delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string; eta?: string }>;
     destination?: string;
     eta?: string;
 };
@@ -198,6 +208,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
     const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
     const nextArrivals = extractNextArrivals(payload);
     const eta = etaTextFromArrivals(nextArrivals, fetchedAt);
+    const status = nextArrivals.find((item) => typeof item.status === "string" && item.status.length > 0)?.status;
 
     return {
         provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
@@ -206,6 +217,7 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
         stopId,
         direction,
         directionLabel: directionLabel || undefined,
+        status,
         destination:
             typeof body.destination === "string" && body.destination.length > 0
                 ? body.destination
@@ -235,7 +247,7 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
 
     const primary = lines[0];
-    const linesForDevice = lines.map(({ provider, stop, stopId, direction, eta, ...rest }) => rest);
+    const linesForDevice = lines.map(({ provider, stop, stopId, eta, ...rest }) => rest);
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,

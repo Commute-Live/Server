@@ -137,11 +137,16 @@ const pickArrivals = (arr: SeptaArrival[] = [], direction?: "N" | "S", nowMs = D
                     ? Math.round((arrivalTs - scheduledTs) / 1000)
                     : null;
             const destination = cleanDirectionLabel(a.destination) || cleanDirectionLabel(a.next_station) || undefined;
+            const status = (a.status ?? "").trim() || undefined;
+            const line = resolveSeptaRailRouteId(a.line ?? "") || normalizeLine(a.line);
             return {
                 arrivalTime: arrivalIso,
                 scheduledTime: scheduledIso ?? null,
                 delaySeconds,
                 destination,
+                status,
+                direction: a.direction,
+                line,
             };
         })
         .filter((a) => !!a.arrivalTime)
