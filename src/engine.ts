@@ -1,6 +1,9 @@
 import {
     cacheMap,
     getCacheEntry,
+    loadActiveDeviceIds,
+    markDeviceActiveInCache,
+    markDeviceInactiveInCache,
     markExpired,
     setCacheEntry,
 } from "./cache.ts";
@@ -495,7 +498,23 @@ export function startAggregatorEngine(
         await scheduleFetches();
     };
 
-    const ready = rebuild();
+    const ready = loadActiveDeviceIds()
+        .then((persisted) => {
+            for (const deviceId of persisted) {
+                onlineDevices.add(deviceId);
+            }
+            logger.info(
+                { count: persisted.size },
+                "restored active devices from Redis",
+            );
+        })
+        .catch((err) =>
+            logger.error(
+                { err },
+                "failed to restore active devices from Redis",
+            ),
+        )
+        .then(() => rebuild());
 
     refreshTimer = setInterval(() => {
         void scheduleFetches();
@@ -539,11 +558,23 @@ export function startAggregatorEngine(
 
     const markDeviceActive = (deviceId: string): Promise<void> => {
         onlineDevices.add(deviceId);
+        markDeviceActiveInCache(deviceId).catch((err) =>
+            logger.error(
+                { err, deviceId },
+                "failed to persist device active state",
+            ),
+        );
         return Promise.resolve();
     };
 
     const markDeviceInactive = (deviceId: string): Promise<void> => {
         onlineDevices.delete(deviceId);
+        markDeviceInactiveInCache(deviceId).catch((err) =>
+            logger.error(
+                { err, deviceId },
+                "failed to persist device inactive state",
+            ),
+        );
         return Promise.resolve();
     };
 
