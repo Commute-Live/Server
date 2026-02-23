@@ -9,6 +9,14 @@ import { loadtestGuard } from "../middleware/loadtest.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
 import { listCtaSubwayLinesForStop } from "../gtfs/cta_subway_lookup.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
+import {
+    listLinesForStop as listSeptaLinesForStop,
+    normalizeDirection as normalizeSeptaDirection,
+    normalizeRouteId as normalizeSeptaRouteId,
+    providerToMode,
+    resolveRoute as resolveSeptaRoute,
+    resolveStopForRoute as resolveSeptaStopForRoute,
+} from "../septa/catalog.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
 const DEFAULT_DISPLAY_TYPE = 1;
@@ -21,6 +29,7 @@ const SUPPORTED_PROVIDERS = new Set([
     "cta-subway",
     "septa-rail",
     "septa-bus",
+    "septa-trolley",
 ]);
 
 const validateLines = (lines: unknown): lines is LineConfig[] => {
@@ -260,6 +269,69 @@ export function registerConfig(app: Hono, deps: dependency) {
                                 400,
                             );
                         }
+                    }
+
+                    const septaMode = providerToMode(provider);
+                    if (septaMode && line && stop) {
+                        const route = await resolveSeptaRoute(
+                            deps.db,
+                            septaMode,
+                            line,
+                        );
+                        if (!route) {
+                            return c.json(
+                                {
+                                    error: `Unknown SEPTA line '${line}' for mode ${septaMode}`,
+                                },
+                                400,
+                            );
+                        }
+                        const stopMatch = await resolveSeptaStopForRoute(
+                            deps.db,
+                            septaMode,
+                            route.id,
+                            row.stop ?? "",
+                        );
+                        if (!stopMatch) {
+                            return c.json(
+                                {
+                                    error: `Invalid line+stop combination for SEPTA ${septaMode}: line ${route.id} does not serve stop ${row.stop}`,
+                                },
+                                400,
+                            );
+                        }
+                        const direction = normalizeSeptaDirection(
+                            septaMode,
+                            row.direction ?? "",
+                        );
+                        if (!direction) {
+                            return c.json(
+                                {
+                                    error: `Direction is required for SEPTA ${septaMode} lines`,
+                                },
+                                400,
+                            );
+                        }
+                        const linesAtStop = await listSeptaLinesForStop(
+                            deps.db,
+                            septaMode,
+                            stopMatch.id,
+                            direction,
+                        );
+                        if (
+                            linesAtStop.length > 0 &&
+                            !linesAtStop.includes(route.id)
+                        ) {
+                            return c.json(
+                                {
+                                    error: `Line ${route.id} does not serve stop ${stopMatch.id} for direction ${direction}`,
+                                },
+                                400,
+                            );
+                        }
+                        row.line = normalizeSeptaRouteId(septaMode, route.id);
+                        row.stop = stopMatch.id;
+                        row.direction = direction;
                     }
                 }
             }

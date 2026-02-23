@@ -9,6 +9,7 @@ import { registerConfig } from "./config.ts";
 import { registerStops } from "./stops.ts";
 import { registerDbAdmin } from "./db_admin.ts";
 import { registerMqttAdmin } from "./mqtt_admin.ts";
+import { registerSeptaAdmin } from "./septa_admin.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
     registerRoot(app);
@@ -20,4 +21,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerStops(app, deps);
     registerDbAdmin(app, deps);
     registerMqttAdmin(app);
+    registerSeptaAdmin(app, deps);
 }

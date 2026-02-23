@@ -51,6 +51,20 @@ const parseLocalTimeToIso = (
     return new Date(asUtcLike + offsetMinutes * 60_000).toISOString();
 };
 
+const localDateParts = (timezone: string, nowMs: number) => {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    const parts = dtf.formatToParts(new Date(nowMs));
+    const year = Number(parts.find((p) => p.type === "year")?.value ?? "0");
+    const month = Number(parts.find((p) => p.type === "month")?.value ?? "0");
+    const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
+    return { year, month, day };
+};
+
 const cleanStationLabel = (value?: string | null) => {
     if (!value) return "";
     return value.replace(/\s+Departures:\s*.*/i, "").trim();
@@ -82,13 +96,13 @@ const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
         const ampm = ampmRaw.toUpperCase();
         if (ampm === "PM" && hh !== 12) hh += 12;
         if (ampm === "AM" && hh === 12) hh = 0;
-        const now = new Date(nowMs);
+        const now = localDateParts("America/New_York", nowMs);
         let candidateMs = Date.parse(
             parseLocalTimeToIso(
                 "America/New_York",
-                now.getUTCFullYear(),
-                now.getUTCMonth() + 1,
-                now.getUTCDate(),
+                now.year,
+                now.month,
+                now.day,
                 hh,
                 mm,
                 0,
