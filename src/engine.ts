@@ -1,5 +1,15 @@
-import { cacheMap, getCacheEntry, getActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
-import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
+import {
+    cacheMap,
+    getCacheEntry,
+    markExpired,
+    setCacheEntry,
+} from "./cache.ts";
+import type {
+    AggregatorEngine,
+    FanoutMap,
+    ProviderPlugin,
+    Subscription,
+} from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
@@ -33,7 +43,10 @@ const clampArrivalsToDisplay = (value: unknown) => {
 };
 
 // Creates Key --> DeviceIds && DeviceIds --> Keys
-const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPlugin>) => {
+const buildFanoutMaps = (
+    subs: Subscription[],
+    providers: Map<string, ProviderPlugin>,
+) => {
     const fanout: FanoutMap = new Map();
     const deviceToKeys = new Map<string, Set<string>>();
     const deviceOptions = new Map<string, DeviceOptions>();
@@ -41,11 +54,15 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
         if (!provider) {
-            console.warn(`[ENGINE] Unknown provider ${sub.provider} for device ${sub.deviceId}`);
+            console.warn(
+                `[ENGINE] Unknown provider ${sub.provider} for device ${sub.deviceId}`,
+            );
             continue;
         }
         if (!provider.supports(sub.type)) {
-            console.warn(`[ENGINE] Provider ${sub.provider} does not support type ${sub.type}`);
+            console.warn(
+                `[ENGINE] Provider ${sub.provider} does not support type ${sub.type}`,
+            );
             continue;
         }
         const key = provider.toKey({ type: sub.type, config: sub.config });
@@ -61,9 +78,13 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
 
         if (!deviceOptions.has(sub.deviceId)) {
             deviceOptions.set(sub.deviceId, {
-                displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
-                scrolling: typeof sub.scrolling === "boolean" ? sub.scrolling : false,
-                arrivalsToDisplay: clampArrivalsToDisplay(sub.arrivalsToDisplay),
+                displayType:
+                    typeof sub.displayType === "number" ? sub.displayType : 1,
+                scrolling:
+                    typeof sub.scrolling === "boolean" ? sub.scrolling : false,
+                arrivalsToDisplay: clampArrivalsToDisplay(
+                    sub.arrivalsToDisplay,
+                ),
             });
         }
     }
@@ -78,20 +99,40 @@ const extractNextArrivals = (payload: unknown) => {
     if (!Array.isArray(arrivalsRaw)) return [];
 
     return arrivalsRaw.slice(0, MAX_ARRIVALS_PER_LINE).map((item) => {
-        const row = item && typeof item === "object" ? (item as Record<string, unknown>) : {};
+        const row =
+            item && typeof item === "object"
+                ? (item as Record<string, unknown>)
+                : {};
         return {
-            arrivalTime: typeof row.arrivalTime === "string" ? row.arrivalTime : undefined,
-            delaySeconds: typeof row.delaySeconds === "number" ? row.delaySeconds : undefined,
-            destination: typeof row.destination === "string" ? row.destination : undefined,
+            arrivalTime:
+                typeof row.arrivalTime === "string"
+                    ? row.arrivalTime
+                    : undefined,
+            delaySeconds:
+                typeof row.delaySeconds === "number"
+                    ? row.delaySeconds
+                    : undefined,
+            destination:
+                typeof row.destination === "string"
+                    ? row.destination
+                    : undefined,
             status: typeof row.status === "string" ? row.status : undefined,
-            direction: typeof row.direction === "string" ? row.direction : undefined,
+            direction:
+                typeof row.direction === "string" ? row.direction : undefined,
             line: typeof row.line === "string" ? row.line : undefined,
         };
     });
 };
 
 const stripArrivalTimeForDevice = (
-    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string }>,
+    arrivals: Array<{
+        arrivalTime?: string;
+        delaySeconds?: number;
+        destination?: string;
+        status?: string;
+        direction?: string;
+        line?: string;
+    }>,
     fetchedAt?: string,
     fallbackDestination?: string,
 ) => {
@@ -106,7 +147,10 @@ const stripArrivalTimeForDevice = (
         }
 
         return {
-            delaySeconds: typeof arrival.delaySeconds === "number" ? arrival.delaySeconds : undefined,
+            delaySeconds:
+                typeof arrival.delaySeconds === "number"
+                    ? arrival.delaySeconds
+                    : undefined,
             destination: arrival.destination ?? fallbackDestination,
             status: arrival.status,
             direction: arrival.direction,
@@ -136,7 +180,11 @@ const parseIsoMs = (value?: string) => {
 };
 
 const etaTextFromArrivals = (
-    arrivals: Array<{ arrivalTime?: string; delaySeconds?: number; destination?: string }>,
+    arrivals: Array<{
+        arrivalTime?: string;
+        delaySeconds?: number;
+        destination?: string;
+    }>,
     fetchedAt?: string,
 ) => {
     if (!arrivals.length) return "--";
@@ -167,14 +215,27 @@ type DeviceLinePayload = {
     direction?: string;
     directionLabel?: string;
     status?: string;
-    nextArrivals: Array<{ delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string; eta?: string }>;
+    nextArrivals: Array<{
+        delaySeconds?: number;
+        destination?: string;
+        status?: string;
+        direction?: string;
+        line?: string;
+        eta?: string;
+    }>;
     destination?: string;
     eta?: string;
 };
 
-const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
+const buildDeviceLinePayload = (
+    key: string,
+    payload: unknown,
+): DeviceLinePayload => {
     const { providerId, params } = parseKeySegments(key);
-    const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
+    const body =
+        payload && typeof payload === "object"
+            ? (payload as Record<string, unknown>)
+            : {};
 
     const lineFromPayload = typeof body.line === "string" ? body.line : "";
     const lineFromKey = typeof params.line === "string" ? params.line : "";
@@ -186,17 +247,32 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             : typeof params.stop === "string" && params.stop.length > 0
               ? params.stop
               : undefined;
-    const stopFromPayload = typeof body.stop === "string" && body.stop.length > 0 ? body.stop : undefined;
-    const stopNameFromPayload = typeof body.stopName === "string" && body.stopName.length > 0 ? body.stopName : undefined;
+    const stopFromPayload =
+        typeof body.stop === "string" && body.stop.length > 0
+            ? body.stop
+            : undefined;
+    const stopNameFromPayload =
+        typeof body.stopName === "string" && body.stopName.length > 0
+            ? body.stopName
+            : undefined;
     const stopName =
         stopNameFromPayload ??
-        (stopFromPayload && stopFromPayload !== stopId ? stopFromPayload : undefined) ??
+        (stopFromPayload && stopFromPayload !== stopId
+            ? stopFromPayload
+            : undefined) ??
         (stopId ? resolveStopName(stopId) : undefined);
-    const directionFromPayload = typeof body.direction === "string" ? body.direction : undefined;
-    const directionFromKey = typeof params.direction === "string" && params.direction.length > 0 ? params.direction : undefined;
+    const directionFromPayload =
+        typeof body.direction === "string" ? body.direction : undefined;
+    const directionFromKey =
+        typeof params.direction === "string" && params.direction.length > 0
+            ? params.direction
+            : undefined;
     const direction = directionFromPayload ?? directionFromKey;
     const directionLabelFromPayload =
-        typeof body.directionLabel === "string" && body.directionLabel.length > 0 ? body.directionLabel : undefined;
+        typeof body.directionLabel === "string" &&
+        body.directionLabel.length > 0
+            ? body.directionLabel
+            : undefined;
     const directionLabel =
         directionLabelFromPayload ??
         resolveDirectionLabel({
@@ -205,13 +281,21 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
             stop: stopName,
         });
 
-    const fetchedAt = typeof body.fetchedAt === "string" ? body.fetchedAt : new Date().toISOString();
+    const fetchedAt =
+        typeof body.fetchedAt === "string"
+            ? body.fetchedAt
+            : new Date().toISOString();
     const nextArrivals = extractNextArrivals(payload);
     const eta = etaTextFromArrivals(nextArrivals, fetchedAt);
-    const status = nextArrivals.find((item) => typeof item.status === "string" && item.status.length > 0)?.status;
+    const status = nextArrivals.find(
+        (item) => typeof item.status === "string" && item.status.length > 0,
+    )?.status;
 
     return {
-        provider: typeof body.provider === "string" && body.provider.length > 0 ? body.provider : providerId,
+        provider:
+            typeof body.provider === "string" && body.provider.length > 0
+                ? body.provider
+                : providerId,
         line: line || undefined,
         stop: stopName ?? stopId,
         stopId,
@@ -233,7 +317,10 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
     };
 };
 
-const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: DeviceOptions) => {
+const buildDeviceCommandPayload = async (
+    keys: Set<string>,
+    deviceOptions?: DeviceOptions,
+) => {
     const lines: DeviceLinePayload[] = [];
 
     for (const key of keys.values()) {
@@ -247,11 +334,15 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     lines.sort((a, b) => (a.line ?? "").localeCompare(b.line ?? ""));
 
     const primary = lines[0];
-    const linesForDevice = lines.map(({ provider, stop, stopId, eta, ...rest }) => rest);
+    const linesForDevice = lines.map(
+        ({ provider, stop, stopId, eta, ...rest }) => rest,
+    );
     return {
         displayType: deviceOptions?.displayType ?? 1,
         scrolling: deviceOptions?.scrolling ?? false,
-        arrivalsToDisplay: clampArrivalsToDisplay(deviceOptions?.arrivalsToDisplay),
+        arrivalsToDisplay: clampArrivalsToDisplay(
+            deviceOptions?.arrivalsToDisplay,
+        ),
         provider: primary?.provider,
         stop: primary?.stop,
         stopId: primary?.stopId,
@@ -262,7 +353,9 @@ const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: Devi
     };
 };
 
-export function startAggregatorEngine(options: EngineOptions): AggregatorEngine {
+export function startAggregatorEngine(
+    options: EngineOptions,
+): AggregatorEngine {
     const providers = options.providers ?? providerRegistry;
     const loadSubscriptions = options.loadSubscriptions;
     const publish = options.publish ?? defaultPublish;
@@ -270,6 +363,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     const pushIntervalMs = options.pushIntervalMs ?? 30_000;
 
     const inflight = new Map<string, Promise<void>>();
+    const onlineDevices = new Set<string>();
     let fanout: FanoutMap = new Map();
     let deviceToKeys = new Map<string, Set<string>>();
     let deviceOptions = new Map<string, DeviceOptions>();
@@ -284,7 +378,10 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
             return;
         }
 
-        const command = await buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
+        const command = await buildDeviceCommandPayload(
+            keys,
+            deviceOptions.get(deviceId),
+        );
         publish(`/device/${deviceId}/commands`, command);
     };
 
@@ -306,15 +403,24 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 const result = await provider.fetch(key, {
                     now,
                     key,
-                    log: (...args: unknown[]) => console.log("[FETCH]", key, ...args),
+                    log: (...args: unknown[]) =>
+                        console.log("[FETCH]", key, ...args),
                 });
-                metrics.histogram("engine.fetch.duration", Date.now() - fetchStart, [providerTag]);
-                await setCacheEntry(key, result.payload, result.ttlSeconds, now);
+                metrics.histogram(
+                    "engine.fetch.duration",
+                    Date.now() - fetchStart,
+                    [providerTag],
+                );
+                await setCacheEntry(
+                    key,
+                    result.payload,
+                    result.ttlSeconds,
+                    now,
+                );
                 const deviceIds = fanout.get(key);
                 if (deviceIds?.size) {
-                    const activeIds = await getActiveDeviceIds([...deviceIds]);
                     for (const deviceId of deviceIds) {
-                        if (!activeIds.has(deviceId)) continue;
+                        if (!onlineDevices.has(deviceId)) continue;
                         await publishDeviceCommand(deviceId);
                     }
                 }
@@ -335,17 +441,19 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         refreshLoopRunning = true;
         const now = Date.now();
         try {
-            const allDeviceIds = [...deviceToKeys.keys()];
-            const activeIds = await getActiveDeviceIds(allDeviceIds);
-            metrics.gauge("engine.devices.active", activeIds.size);
+            metrics.gauge("engine.devices.active", onlineDevices.size);
             for (const [key, deviceIds] of fanout.entries()) {
-                const anyActive = [...deviceIds].some((id) => activeIds.has(id));
+                const anyActive = [...deviceIds].some((id) =>
+                    onlineDevices.has(id),
+                );
                 if (!anyActive) continue;
                 const entry = await getCacheEntry(key);
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
                     const ttlRemaining = entry ? entry.expiresAt - now : -1;
-                    console.log(`[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`);
+                    console.log(
+                        `[ENGINE] cache miss for ${key} (ttlRemaining=${ttlRemaining}ms, hasEntry=${!!entry})`,
+                    );
                     metrics.increment("engine.cache.miss");
                     void fetchKey(key);
                 } else {
@@ -363,9 +471,8 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         pushLoopRunning = true;
         try {
             const allDeviceIds = [...deviceToKeys.keys()];
-            const activeIds = await getActiveDeviceIds(allDeviceIds);
             for (const deviceId of allDeviceIds) {
-                if (!activeIds.has(deviceId)) continue;
+                if (!onlineDevices.has(deviceId)) continue;
                 await publishDeviceCommand(deviceId);
             }
         } finally {
@@ -425,11 +532,13 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     };
 
     const markDeviceActive = (deviceId: string): Promise<void> => {
-        return markDeviceActiveInCache(deviceId);
+        onlineDevices.add(deviceId);
+        return Promise.resolve();
     };
 
     const markDeviceInactive = (deviceId: string): Promise<void> => {
-        return markDeviceInactiveInCache(deviceId);
+        onlineDevices.delete(deviceId);
+        return Promise.resolve();
     };
 
     return {
