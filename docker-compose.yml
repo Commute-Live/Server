@@ -8,7 +8,7 @@ services:
       com.datadoghq.tags.version: "16"
       com.datadoghq.ad.check_names: '["postgres"]'
       com.datadoghq.ad.init_configs: "[{}]"
-      com.datadoghq.ad.instances: '[{"host":"%%host%%","port":"5432","username":"datadog","password":"%%env_DD_PG_PASSWORD%%","dbname":"%%env_POSTGRES_DB%%","dbm":true,"collect_activity_metrics":true,"query_metrics":{"enabled":true},"query_samples":{"enabled":true},"query_activity":{"enabled":true}}]'
+      com.datadoghq.ad.instances: '[{"host":"%%host%%","port":"5432","username":"datadog","password":"%%env_DD_PG_PASSWORD%%","dbname":"%%env_POSTGRES_DB%%","reported_hostname":"%%env_DD_PG_HOSTNAME%%","dbm":true,"collect_activity_metrics":true,"collect_schemas":true,"database_autodiscovery":{"enabled":true},"query_metrics":{"enabled":true},"query_samples":{"enabled":true},"query_activity":{"enabled":true}}]'
     ports:
       - "${POSTGRES_PORT_BIND:-127.0.0.1:5432}:5432"
     environment:
@@ -183,6 +183,7 @@ services:
       DD_LOGS_CONFIG_AUTO_MULTI_LINE_DETECTION: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
       DD_PG_PASSWORD: ${DD_PG_PASSWORD}
+      DD_PG_HOSTNAME: ${DD_PG_HOSTNAME}
       POSTGRES_DB: ${POSTGRES_DB}
       DD_CONTAINER_EXCLUDE_LOGS: "name:dd-agent"
       DD_HOST_PROC: /host/proc
