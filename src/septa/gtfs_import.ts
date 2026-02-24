@@ -361,7 +361,7 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
         tmpRoot = await mkdtemp(join(tmpdir(), "septa-gtfs-zip-"));
         const zipPath = join(tmpRoot, "feed.zip");
         await writeFile(zipPath, zipBytes);
-        const zipEntries = await parseZipTextEntries(zipPath);
+        const zipEntries = await listZipTextEntries(zipPath);
         const { busDir, railDir } = detectSeptaDatasets(zipEntries);
 
         const [
@@ -380,20 +380,20 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             busCalendarRaw,
             busCalendarDatesRaw,
         ] = await Promise.all([
-            readCsvFromZip(zipEntries, railDir, "routes.txt"),
-            readCsvFromZip(zipEntries, railDir, "stops.txt"),
-            readCsvFromZip(zipEntries, railDir, "trips.txt"),
-            readCsvFromZip(zipEntries, railDir, "stop_times.txt"),
-            readCsvFromZip(zipEntries, railDir, "route_stops.txt", false),
-            readCsvFromZip(zipEntries, railDir, "calendar.txt", false),
-            readCsvFromZip(zipEntries, railDir, "calendar_dates.txt", false),
-            readCsvFromZip(zipEntries, busDir, "routes.txt"),
-            readCsvFromZip(zipEntries, busDir, "stops.txt"),
-            readCsvFromZip(zipEntries, busDir, "trips.txt"),
-            readCsvFromZip(zipEntries, busDir, "stop_times.txt"),
-            readCsvFromZip(zipEntries, busDir, "route_stops.txt", false),
-            readCsvFromZip(zipEntries, busDir, "calendar.txt", false),
-            readCsvFromZip(zipEntries, busDir, "calendar_dates.txt", false),
+            readCsvFromZip(zipPath, railDir, "routes.txt", zipEntries),
+            readCsvFromZip(zipPath, railDir, "stops.txt", zipEntries),
+            readCsvFromZip(zipPath, railDir, "trips.txt", zipEntries),
+            readCsvFromZip(zipPath, railDir, "stop_times.txt", zipEntries),
+            readCsvFromZip(zipPath, railDir, "route_stops.txt", zipEntries, false),
+            readCsvFromZip(zipPath, railDir, "calendar.txt", zipEntries, false),
+            readCsvFromZip(zipPath, railDir, "calendar_dates.txt", zipEntries, false),
+            readCsvFromZip(zipPath, busDir, "routes.txt", zipEntries),
+            readCsvFromZip(zipPath, busDir, "stops.txt", zipEntries),
+            readCsvFromZip(zipPath, busDir, "trips.txt", zipEntries),
+            readCsvFromZip(zipPath, busDir, "stop_times.txt", zipEntries),
+            readCsvFromZip(zipPath, busDir, "route_stops.txt", zipEntries, false),
+            readCsvFromZip(zipPath, busDir, "calendar.txt", zipEntries, false),
+            readCsvFromZip(zipPath, busDir, "calendar_dates.txt", zipEntries, false),
         ]);
 
         const routeRows: RouteRow[] = [];
