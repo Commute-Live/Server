@@ -61,7 +61,7 @@ export async function listRoutes(
     limit: number,
 ): Promise<SeptaRouteRow[]> {
     const needle = q.trim();
-    const baseWhere = and(eq(septaRoutes.mode, mode), eq(septaRoutes.active, true));
+    const baseWhere = and(eq(septaRoutes.mode, mode));
     const where = needle
         ? and(
               baseWhere,
@@ -101,9 +101,7 @@ export async function listStops(
         const where = and(
             eq(septaRouteStops.mode, mode),
             eq(septaRouteStops.routeId, routeId),
-            eq(septaRouteStops.active, true),
             eq(septaStops.mode, mode),
-            eq(septaStops.active, true),
             q
                 ? or(
                       ilike(septaStops.id, `%${q}%`),
@@ -132,7 +130,6 @@ export async function listStops(
 
     const where = and(
         eq(septaStops.mode, mode),
-        eq(septaStops.active, true),
         q
             ? or(
                   ilike(septaStops.id, `%${q}%`),
@@ -165,7 +162,6 @@ export async function listLinesForStop(
     const where = and(
         eq(septaRouteStops.mode, mode),
         eq(septaRouteStops.stopId, normalizedStopId),
-        eq(septaRouteStops.active, true),
         normalizedDirection ? eq(septaRouteStops.direction, normalizedDirection) : undefined,
     );
     const rows = await db
@@ -190,7 +186,7 @@ export async function resolveRoute(
             label: septaRoutes.displayName,
         })
         .from(septaRoutes)
-        .where(and(eq(septaRoutes.mode, mode), eq(septaRoutes.id, normalized), eq(septaRoutes.active, true)))
+        .where(and(eq(septaRoutes.mode, mode), eq(septaRoutes.id, normalized)))
         .limit(1);
     if (exact) return { id: exact.id, label: exact.label || exact.id };
 
@@ -203,7 +199,6 @@ export async function resolveRoute(
         .where(
             and(
                 eq(septaRoutes.mode, mode),
-                eq(septaRoutes.active, true),
                 or(
                     ilike(septaRoutes.displayName, `%${routeInput.trim()}%`),
                     ilike(septaRoutes.shortName, `%${routeInput.trim()}%`),
@@ -244,8 +239,6 @@ export async function resolveStopForRoute(
             and(
                 eq(septaRouteStops.mode, mode),
                 eq(septaRouteStops.routeId, normalizedRouteId),
-                eq(septaRouteStops.active, true),
-                eq(septaStops.active, true),
                 eq(septaStops.id, needle),
             ),
         )
@@ -269,8 +262,6 @@ export async function resolveStopForRoute(
             and(
                 eq(septaRouteStops.mode, mode),
                 eq(septaRouteStops.routeId, normalizedRouteId),
-                eq(septaRouteStops.active, true),
-                eq(septaStops.active, true),
                 ilike(septaStops.name, needle),
             ),
         )
@@ -287,7 +278,7 @@ export async function getStop(
     const [row] = await db
         .select({ id: septaStops.id, name: septaStops.name })
         .from(septaStops)
-        .where(and(eq(septaStops.mode, mode), eq(septaStops.id, stopId), eq(septaStops.active, true)))
+        .where(and(eq(septaStops.mode, mode), eq(septaStops.id, stopId)))
         .limit(1);
     if (!row) return null;
     return { id: row.id, name: row.name };

@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { desc, eq } from "drizzle-orm";
 import {
     septaIngestRuns,
     septaRouteStops,
@@ -26,7 +26,6 @@ const CANONICAL_RAIL_LINES = [
     { code: "CHW", displayName: "Chestnut Hill West" },
     { code: "FOX", displayName: "Fox Chase" },
 ] as const;
-const CANONICAL_RAIL_CODES = new Set(CANONICAL_RAIL_LINES.map((r) => r.code));
 const CANONICAL_RAIL_BY_LINE = new Map(
     CANONICAL_RAIL_LINES.map((r) => [
         r.displayName.replace(/\s+line$/i, "").trim().toUpperCase(),
@@ -179,6 +178,7 @@ function extractSurfaceRoutesFromTransitViewAll(
 export async function runSeptaSync(db: DbLike): Promise<{
     runId: string;
     stats: Record<string, unknown>;
+    status: "success" | "partial";
 }> {
     const [run] = await db
         .insert(septaIngestRuns)
@@ -309,9 +309,10 @@ export async function runSeptaSync(db: DbLike): Promise<{
         };
 
         await db.transaction(async (tx: DbLike) => {
-            await tx.update(septaRoutes).set({ active: false });
-            await tx.update(septaStops).set({ active: false });
-            await tx.update(septaRouteStops).set({ active: false });
+            // Hard refresh: replace all SEPTA catalog rows from latest APIs each run.
+            await tx.delete(septaRouteStops);
+            await tx.delete(septaStops);
+            await tx.delete(septaRoutes);
 
             for (const row of routeMap.values()) {
                 await tx
@@ -323,16 +324,6 @@ export async function runSeptaSync(db: DbLike): Promise<{
                         longName: row.longName,
                         displayName: row.displayName,
                         active: true,
-                    })
-                    .onConflictDoUpdate({
-                        target: [septaRoutes.mode, septaRoutes.id],
-                        set: {
-                            shortName: row.shortName,
-                            longName: row.longName,
-                            displayName: row.displayName,
-                            active: true,
-                            updatedAt: new Date().toISOString(),
-                        },
                     });
             }
 
@@ -347,17 +338,6 @@ export async function runSeptaSync(db: DbLike): Promise<{
                         lat: row.lat,
                         lon: row.lon,
                         active: true,
-                    })
-                    .onConflictDoUpdate({
-                        target: [septaStops.mode, septaStops.id],
-                        set: {
-                            name: row.name,
-                            normalizedName: row.name.toLowerCase(),
-                            lat: row.lat,
-                            lon: row.lon,
-                            active: true,
-                            updatedAt: new Date().toISOString(),
-                        },
                     });
             }
 
@@ -371,91 +351,22 @@ export async function runSeptaSync(db: DbLike): Promise<{
                         direction: row.direction,
                         stopSequence: row.stopSequence,
                         active: true,
-                    })
-                    .onConflictDoUpdate({
-                        target: [
-                            septaRouteStops.mode,
-                            septaRouteStops.routeId,
-                            septaRouteStops.stopId,
-                            septaRouteStops.direction,
-                        ],
-                        set: {
-                            stopSequence: row.stopSequence,
-                            active: true,
-                            updatedAt: new Date().toISOString(),
-                        },
                     });
-            }
-
-            // Remove legacy/non-canonical rail route ids so all rail rows use canonical codes.
-            const legacyRailRouteIds = [
-                "AIRPORT",
-                "CHESTNUT HILL EAST",
-                "CHESTNUT HILL WEST",
-                "FOX CHASE",
-                "MANAYUNK/NORRISTOWN",
-                "MEDIA/WAWA",
-                "PAOLI/THORNDALE",
-                "TRENTON",
-                "WARMINSTER",
-                "WEST TRENTON",
-                "WILMINGTON/NEWARK",
-            ];
-            for (const legacyId of legacyRailRouteIds) {
-                await tx
-                    .delete(septaRouteStops)
-                    .where(
-                        and(
-                            eq(septaRouteStops.mode, "rail"),
-                            eq(septaRouteStops.routeId, legacyId),
-                        ),
-                    );
-                await tx
-                    .delete(septaRoutes)
-                    .where(
-                        and(
-                            eq(septaRoutes.mode, "rail"),
-                            eq(septaRoutes.id, legacyId),
-                        ),
-                    );
-            }
-            // Delete any unexpected rail code rows outside the canonical list.
-            const rows = await tx
-                .select({ id: septaRoutes.id })
-                .from(septaRoutes)
-                .where(eq(septaRoutes.mode, "rail"));
-            for (const row of rows as Array<{ id: string }>) {
-                if (CANONICAL_RAIL_CODES.has(row.id)) continue;
-                await tx
-                    .delete(septaRouteStops)
-                    .where(
-                        and(
-                            eq(septaRouteStops.mode, "rail"),
-                            eq(septaRouteStops.routeId, row.id),
-                        ),
-                    );
-                await tx
-                    .delete(septaRoutes)
-                    .where(
-                        and(
-                            eq(septaRoutes.mode, "rail"),
-                            eq(septaRoutes.id, row.id),
-                        ),
-                    );
             }
         });
 
+        const finalStatus: "success" | "partial" = errors.length > 0 ? "partial" : "success";
         await db
             .update(septaIngestRuns)
             .set({
-                status: errors.length > 0 ? "partial" : "success",
+                status: finalStatus,
                 statsJson: stats,
                 errorJson: errors.length > 0 ? { messages: errors } : null,
                 finishedAt: new Date().toISOString(),
             })
             .where(eq(septaIngestRuns.id, runId));
 
-        return { runId, stats };
+        return { runId, stats, status: finalStatus };
     } catch (err) {
         const message = err instanceof Error ? err.message : "SEPTA sync failed";
         await db
