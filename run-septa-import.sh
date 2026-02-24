@@ -17,8 +17,8 @@ fi
 if [ -z "${POSTGRES_DB_ENV}" ] && [ -f .env ]; then
   POSTGRES_DB_ENV="$(grep '^POSTGRES_DB=' .env | head -n1 | cut -d= -f2- || true)"
 fi
-POSTGRES_USER_ENV="${POSTGRES_USER_ENV:-commute}"
-POSTGRES_DB_ENV="${POSTGRES_DB_ENV:-commutelive}"
+POSTGRES_USER_ENV="${POSTGRES_USER_ENV:-postgres}"
+POSTGRES_DB_ENV="${POSTGRES_DB_ENV:-postgres}"
 
 if [ -z "${SYNC_TOKEN}" ]; then
   echo "ERROR: set SYNC_TOKEN/TOKEN or add SEPTA_SYNC_TOKEN to .env"
