@@ -208,20 +208,8 @@ export async function runSeptaSync(db: DbLike): Promise<{
             });
         }
 
-        const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`);
-        const railLinesSeen = new Map<string, { code: string; displayName: string }>();
-        for (const record of trainRows) {
-            const longName = normalizeRailLineName(readField(record, ["line"]));
-            if (isInvalidRailLineName(longName)) continue;
-            const canonical = CANONICAL_RAIL_BY_LINE.get(normalizeRailLineKey(longName));
-            if (!canonical) {
-                errors.push(`No canonical rail code for line: ${longName}`);
-                logger.warn({ line: longName }, "SEPTA sync line not in canonical rail map");
-                continue;
-            }
-            railLinesSeen.set(canonical.code, canonical);
-        }
-        for (const canonical of railLinesSeen.values()) {
+        // Keep all canonical rail routes active at all times (stable UI list).
+        for (const canonical of CANONICAL_RAIL_LINES) {
             routeMap.set(`rail:${canonical.code}`, {
                 mode: "rail",
                 id: canonical.code,
@@ -229,6 +217,18 @@ export async function runSeptaSync(db: DbLike): Promise<{
                 longName: canonical.displayName,
                 displayName: canonical.displayName,
             });
+        }
+        // TrainView is optional here; only used to report unknown line names.
+        const trainRows = await fetchRecords(`${SEPTA_BASE}/TrainView/index.php`).catch(
+            () => [] as Array<Record<string, unknown>>,
+        );
+        for (const record of trainRows) {
+            const longName = normalizeRailLineName(readField(record, ["line"]));
+            if (isInvalidRailLineName(longName)) continue;
+            const canonical = CANONICAL_RAIL_BY_LINE.get(normalizeRailLineKey(longName));
+            if (canonical) continue;
+            errors.push(`No canonical rail code for line: ${longName}`);
+            logger.warn({ line: longName }, "SEPTA sync line not in canonical rail map");
         }
 
         for (const route of routeMap.values()) {

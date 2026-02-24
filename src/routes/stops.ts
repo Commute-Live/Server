@@ -314,6 +314,12 @@ export function registerStops(app: Hono, deps: dependency) {
             const arrivals = Array.isArray(payload.arrivals)
                 ? payload.arrivals.slice(0, limit)
                 : [];
+            const message =
+                arrivals.length === 0
+                    ? mode === "rail"
+                      ? "No upcoming trains for this line at this station right now."
+                      : "No upcoming arrivals for this line at this stop right now."
+                    : null;
             return c.json({
                 mode,
                 provider: providerId,
@@ -321,6 +327,7 @@ export function registerStops(app: Hono, deps: dependency) {
                 stopId,
                 direction,
                 arrivals,
+                message,
                 raw: payload,
             });
         } catch (err) {
