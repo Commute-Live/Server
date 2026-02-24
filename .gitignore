@@ -9,3 +9,5 @@ data/cta-subway/stop_times_og.txt
 # deploy keys
 commute_live_deploy_key
 commute_live_deploy_key.pub
+data/septa/bus/stop_times.txt
+data/septa/rail/stop_times.txt

@@ -67,8 +67,6 @@ const normalizeName = (value: string) => value.trim().replace(/\s+/g, " ");
 const normalizeRouteId = (value: string) => value.trim().toUpperCase().replace(/\s+/g, " ");
 const REQUIRED_GTFS_FILES = ["routes.txt", "stops.txt", "trips.txt", "stop_times.txt"] as const;
 
-type ZipTextEntries = Map<string, string>;
-
 function parseCsvLine(line: string): string[] {
     const values: string[] = [];
     let current = "";
@@ -174,14 +172,14 @@ async function unzipReadBinaryEntry(zipPath: string, entryPath: string): Promise
     return bytes;
 }
 
-async function parseZipTextEntries(zipPath: string): Promise<ZipTextEntries> {
+async function listZipTextEntries(zipPath: string): Promise<Set<string>> {
     const entryNames = await unzipListEntries(zipPath);
-    const out = new Map<string, string>();
+    const out = new Set<string>();
     for (const rawPath of entryNames) {
         const path = normalizeZipPath(rawPath);
         if (!path || path.endsWith("/")) continue;
         if (path.toLowerCase().endsWith(".txt")) {
-            out.set(path, await unzipReadTextEntry(zipPath, rawPath));
+            out.add(path);
             continue;
         }
         // Some feeds package bus/rail as nested zip files.
@@ -191,11 +189,11 @@ async function parseZipTextEntries(zipPath: string): Promise<ZipTextEntries> {
             try {
                 const nestedZipPath = join(nestedTmpRoot, "nested.zip");
                 await writeFile(nestedZipPath, nestedBytes);
-                const nestedEntries = await parseZipTextEntries(nestedZipPath);
+                const nestedEntries = await listZipTextEntries(nestedZipPath);
                 const nestedPrefix = stripZipExt(path.split("/").pop() ?? "nested");
-                for (const [nestedPath, content] of nestedEntries.entries()) {
+                for (const nestedPath of nestedEntries.values()) {
                     const merged = normalizeZipPath(`${nestedPrefix}/${nestedPath}`);
-                    out.set(merged, content);
+                    out.add(merged);
                 }
             } finally {
                 await rm(nestedTmpRoot, { recursive: true, force: true }).catch(() => undefined);
@@ -206,25 +204,25 @@ async function parseZipTextEntries(zipPath: string): Promise<ZipTextEntries> {
 }
 
 function readCsvFromZip(
-    entries: ZipTextEntries,
+    zipPath: string,
     dir: string,
     fileName: string,
+    entrySet: Set<string>,
     required = true,
-): CsvRecord[] {
+): Promise<CsvRecord[]> {
     const path = zipJoin(dir, fileName);
-    const content = entries.get(path);
-    if (!content) {
+    if (!entrySet.has(path)) {
         if (required) {
             throw new Error(`Missing required GTFS file in zip: ${path}`);
         }
-        return [];
+        return Promise.resolve([]);
     }
-    return parseCsvText(content);
+    return unzipReadTextEntry(zipPath, path).then(parseCsvText);
 }
 
-function detectSeptaDatasets(entries: ZipTextEntries): { busDir: string; railDir: string } {
+function detectSeptaDatasets(entries: Set<string>): { busDir: string; railDir: string } {
     const dirs = new Set<string>();
-    for (const path of entries.keys()) {
+    for (const path of entries.values()) {
         const idx = path.lastIndexOf("/");
         dirs.add(idx >= 0 ? path.slice(0, idx) : "");
     }
