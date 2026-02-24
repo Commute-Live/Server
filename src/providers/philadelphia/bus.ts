@@ -3,9 +3,12 @@ import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
+import { fillSeptaScheduledArrivals } from "./schedule_fill.ts";
 
-const TRIP_FEED_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
-const TRIP_PRINT_URL = "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
+const TRIP_FEED_URL =
+    process.env.SEPTA_LIVE_BUS_RT_URL ?? "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
+const TRIP_PRINT_URL =
+    process.env.SEPTA_LIVE_BUS_PRINT_URL ?? "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/print.php";
 const FEED_TTL_S = 15;
 const CACHE_TTL_SECONDS = 20;
 const FEED_CACHE_KEY = "septa-bus:feed";
@@ -256,6 +259,31 @@ export const fetchSeptaSurfaceArrivals = async (
         } catch {
             // Keep empty arrivals.
         }
+    }
+    if (arrivals.length < 3) {
+        const mode = providerId === "septa-trolley" ? "trolley" : "bus";
+        const fallback = await fillSeptaScheduledArrivals({
+            mode,
+            routeId: route,
+            stopInput: stop,
+            direction,
+            nowMs: ctx.now,
+            limit: 3 - arrivals.length,
+        });
+        const seen = new Set(arrivals.map((a) => `${a.arrivalTime}:${a.destination ?? ""}`));
+        for (const row of fallback) {
+            const key = `${row.arrivalTime}:${row.destination ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            arrivals.push({
+                arrivalTime: row.arrivalTime,
+                scheduledTime: row.scheduledTime,
+                delaySeconds: null,
+                destination: row.destination,
+            });
+            if (arrivals.length >= 3) break;
+        }
+        arrivals = arrivals.sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
     }
     const stopName = stop;
     const destination = arrivals.find((a) => typeof a.destination === "string" && a.destination.length > 0)?.destination;
