@@ -1,7 +1,9 @@
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { eq } from "drizzle-orm";
 import {
     septaIngestRuns,
@@ -116,6 +118,35 @@ function parseCsvText(content: string): CsvRecord[] {
         rows.push(rec);
     }
     return rows;
+}
+
+async function streamCsvFile(
+    path: string,
+    onRow: (row: CsvRecord) => Promise<void> | void,
+): Promise<void> {
+    if (!existsSync(path)) return;
+    const rl = createInterface({
+        input: createReadStream(path),
+        crlfDelay: Infinity,
+    });
+
+    let header: string[] | null = null;
+    for await (const rawLine of rl) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        if (!header) {
+            header = parseCsvLine(line);
+            continue;
+        }
+        const cols = parseCsvLine(line);
+        const rec: CsvRecord = {};
+        for (let i = 0; i < header.length; i++) {
+            const key = (header[i] ?? "").trim();
+            if (!key) continue;
+            rec[key] = (cols[i] ?? "").trim();
+        }
+        await onRow(rec);
+    }
 }
 
 async function readCsvFile(path: string, required = true): Promise<CsvRecord[]> {
@@ -434,34 +465,30 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
         const [
             railRoutesRaw,
             railStopsRaw,
-            railTripsRaw,
-            railStopTimesRaw,
             railRouteStopsRaw,
             railCalendarRaw,
             railCalendarDatesRaw,
             busRoutesRaw,
             busStopsRaw,
-            busTripsRaw,
-            busStopTimesRaw,
             busRouteStopsRaw,
             busCalendarRaw,
             busCalendarDatesRaw,
         ] = await Promise.all([
             readCsvFile(join(railDir, "routes.txt")),
             readCsvFile(join(railDir, "stops.txt")),
-            readCsvFile(join(railDir, "trips.txt")),
-            readCsvFile(join(railDir, "stop_times.txt")),
             readCsvFile(join(railDir, "route_stops.txt"), false),
             readCsvFile(join(railDir, "calendar.txt"), false),
             readCsvFile(join(railDir, "calendar_dates.txt"), false),
             readCsvFile(join(busDir, "routes.txt")),
             readCsvFile(join(busDir, "stops.txt")),
-            readCsvFile(join(busDir, "trips.txt")),
-            readCsvFile(join(busDir, "stop_times.txt")),
             readCsvFile(join(busDir, "route_stops.txt"), false),
             readCsvFile(join(busDir, "calendar.txt"), false),
             readCsvFile(join(busDir, "calendar_dates.txt"), false),
         ]);
+        const railTripsPath = join(railDir, "trips.txt");
+        const busTripsPath = join(busDir, "trips.txt");
+        const railStopTimesPath = join(railDir, "stop_times.txt");
+        const busStopTimesPath = join(busDir, "stop_times.txt");
 
         const routeRows: RouteRow[] = [];
         const routeModeById = new Map<string, SeptaMode>();
@@ -533,11 +560,11 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             direction: string;
             headsign: string;
         }>();
-        for (const row of railTripsRaw) {
+        await streamCsvFile(railTripsPath, async (row) => {
             const tripId = row.trip_id?.trim();
             const routeId = normalizeRouteId(row.route_id ?? "");
             const serviceId = row.service_id?.trim() ?? "";
-            if (!tripId || !routeId || !serviceId) continue;
+            if (!tripId || !routeId || !serviceId) return;
             tripById.set(tripId, {
                 mode: "rail",
                 routeId,
@@ -545,12 +572,12 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
                 direction: normalizeDirection("rail", row.direction_id),
                 headsign: normalizeName(row.trip_headsign ?? ""),
             });
-        }
-        for (const row of busTripsRaw) {
+        });
+        await streamCsvFile(busTripsPath, async (row) => {
             const tripId = row.trip_id?.trim();
             const routeId = normalizeRouteId(row.route_id ?? "");
             const serviceId = row.service_id?.trim() ?? "";
-            if (!tripId || !routeId || !serviceId) continue;
+            if (!tripId || !routeId || !serviceId) return;
             const mode = routeModeById.get(routeId) ?? "bus";
             tripById.set(tripId, {
                 mode,
@@ -559,7 +586,7 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
                 direction: normalizeDirection(mode, row.direction_id),
                 headsign: normalizeName(row.trip_headsign ?? ""),
             });
-        }
+        });
 
         const routeStopByKey = new Map<string, RouteStopRow>();
         const touchRouteStop = (row: RouteStopRow) => {
@@ -608,36 +635,23 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             });
         }
 
-        const scheduledRows: ScheduledStopTimeRow[] = [];
+        let scheduledStopTimesCount = 0;
         const usedStopsByMode = new Map<SeptaMode, Set<string>>([
             ["rail", new Set<string>()],
             ["bus", new Set<string>()],
             ["trolley", new Set<string>()],
         ]);
-        const ingestStopTimes = (rows: CsvRecord[]) => {
-            for (const row of rows) {
+        const consumeStopTimesForMetadata = async (path: string) => {
+            await streamCsvFile(path, async (row) => {
                 const tripId = row.trip_id?.trim() ?? "";
                 const stopId = row.stop_id?.trim() ?? "";
-                if (!tripId || !stopId) continue;
+                if (!tripId || !stopId) return;
                 const trip = tripById.get(tripId);
-                if (!trip) continue;
+                if (!trip) return;
                 const arrivalSeconds = parseTimeToSeconds(row.arrival_time);
-                if (arrivalSeconds === null) continue;
-                const departureSeconds = parseTimeToSeconds(row.departure_time);
+                if (arrivalSeconds === null) return;
                 const stopSequence = parseIntOrNull(row.stop_sequence);
-                scheduledRows.push({
-                    mode: trip.mode,
-                    routeId: trip.routeId,
-                    stopId,
-                    direction: trip.direction,
-                    tripId,
-                    serviceId: trip.serviceId,
-                    headsign: trip.headsign,
-                    arrivalSeconds,
-                    departureSeconds,
-                    stopSequence,
-                    active: true,
-                });
+                scheduledStopTimesCount += 1;
                 usedStopsByMode.get(trip.mode)?.add(stopId);
                 touchRouteStop({
                     mode: trip.mode,
@@ -646,10 +660,10 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
                     direction: trip.direction,
                     stopSequence,
                 });
-            }
+            });
         };
-        ingestStopTimes(railStopTimesRaw);
-        ingestStopTimes(busStopTimesRaw);
+        await consumeStopTimesForMetadata(railStopTimesPath);
+        await consumeStopTimesForMetadata(busStopTimesPath);
 
         for (const row of routeStopByKey.values()) {
             usedStopsByMode.get(row.mode)?.add(row.stopId);
@@ -792,7 +806,46 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
                 })),
             );
             await insertChunks(tx, septaServiceDates, serviceDateRows);
-            await insertChunks(tx, septaScheduledStopTimes, scheduledRows);
+
+            const scheduledChunk: ScheduledStopTimeRow[] = [];
+            const flushScheduled = async () => {
+                if (scheduledChunk.length === 0) return;
+                await tx.insert(septaScheduledStopTimes).values(scheduledChunk.splice(0, scheduledChunk.length));
+            };
+
+            const insertStopTimes = async (path: string) => {
+                await streamCsvFile(path, async (row) => {
+                    const tripId = row.trip_id?.trim() ?? "";
+                    const stopId = row.stop_id?.trim() ?? "";
+                    if (!tripId || !stopId) return;
+                    const trip = tripById.get(tripId);
+                    if (!trip) return;
+                    const arrivalSeconds = parseTimeToSeconds(row.arrival_time);
+                    if (arrivalSeconds === null) return;
+                    const departureSeconds = parseTimeToSeconds(row.departure_time);
+                    const stopSequence = parseIntOrNull(row.stop_sequence);
+                    scheduledChunk.push({
+                        mode: trip.mode,
+                        routeId: trip.routeId,
+                        stopId,
+                        direction: trip.direction,
+                        tripId,
+                        serviceId: trip.serviceId,
+                        headsign: trip.headsign,
+                        arrivalSeconds,
+                        departureSeconds,
+                        stopSequence,
+                        active: true,
+                    });
+                    if (scheduledChunk.length >= 500) {
+                        await flushScheduled();
+                    }
+                });
+            };
+
+            await insertStopTimes(railStopTimesPath);
+            await insertStopTimes(busStopTimesPath);
+            await flushScheduled();
         });
 
         const stats = {
@@ -802,7 +855,7 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             routes: routeRowsDedup.length,
             stops: stopRowsDedup.length,
             routeStops: routeStopRows.length,
-            scheduledStopTimes: scheduledRows.length,
+            scheduledStopTimes: scheduledStopTimesCount,
             serviceDates: serviceDateRows.length,
             errors: errors.length,
         };
