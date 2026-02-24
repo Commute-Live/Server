@@ -1,0 +1,26 @@
+name: Import SEPTA Core (Staging)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  import-septa-core-staging:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run SEPTA core GTFS import on staging via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          username: ${{ secrets.STAGE_SSH_USER }}
+          port: ${{ secrets.STAGE_SSH_PORT }}
+          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          script_stop: true
+          script: |
+            set -euo pipefail
+            cd /opt/Server
+
+            git fetch origin
+            git checkout staging
+            git reset --hard origin/staging
+
+            GTFS_URL="https://www3.septa.org/developer/gtfs_public.zip" ./import-septa-core.sh
