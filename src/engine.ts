@@ -1,5 +1,18 @@
-import { cacheMap, getCacheEntry, loadActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
-import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
+import {
+    cacheMap,
+    getCacheEntry,
+    loadActiveDeviceIds,
+    markDeviceActiveInCache,
+    markDeviceInactiveInCache,
+    markExpired,
+    setCacheEntry,
+} from "./cache.ts";
+import type {
+    AggregatorEngine,
+    FanoutMap,
+    ProviderPlugin,
+    Subscription,
+} from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
@@ -45,11 +58,17 @@ const buildFanoutMaps = (
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
         if (!provider) {
-            logger.warn({ provider: sub.provider, deviceId: sub.deviceId }, "unknown provider");
+            logger.warn(
+                { provider: sub.provider, deviceId: sub.deviceId },
+                "unknown provider",
+            );
             continue;
         }
         if (!provider.supports(sub.type)) {
-            logger.warn({ provider: sub.provider, type: sub.type }, "provider does not support type");
+            logger.warn(
+                { provider: sub.provider, type: sub.type },
+                "provider does not support type",
+            );
             continue;
         }
         const key = provider.toKey({ type: sub.type, config: sub.config });
@@ -390,7 +409,8 @@ export function startAggregatorEngine(
                 const result = await provider.fetch(key, {
                     now,
                     key,
-                    log: (...args: unknown[]) => logger.debug({ key }, String(args[0] ?? "")),
+                    log: (...args: unknown[]) =>
+                        logger.debug({ key }, String(args[0] ?? "")),
                 });
                 metrics.histogram(
                     "engine.fetch.duration",
@@ -437,7 +457,10 @@ export function startAggregatorEngine(
                 const expired = !entry || entry.expiresAt <= now;
                 if (expired) {
                     const ttlRemaining = entry ? entry.expiresAt - now : -1;
-                    logger.debug({ key, ttlRemaining, hasEntry: !!entry }, "cache miss");
+                    logger.debug(
+                        { key, ttlRemaining, hasEntry: !!entry },
+                        "cache miss",
+                    );
                     metrics.increment("engine.cache.miss");
                     void fetchKey(key);
                 } else {
@@ -467,7 +490,9 @@ export function startAggregatorEngine(
     const rebuildMaps = async () => {
         const subs = await loadSubscriptions();
         const totalDevices = new Set(subs.map((s) => s.deviceId)).size;
-        const activeSubs = subs.filter((sub) => onlineDevices.has(sub.deviceId));
+        const activeSubs = subs.filter((sub) =>
+            onlineDevices.has(sub.deviceId),
+        );
         const maps = buildFanoutMaps(activeSubs, providers);
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
@@ -486,9 +511,17 @@ export function startAggregatorEngine(
             for (const deviceId of persisted) {
                 onlineDevices.add(deviceId);
             }
-            logger.info({ count: persisted.size }, "restored active devices from Redis");
+            logger.info(
+                { count: persisted.size },
+                "restored active devices from Redis",
+            );
         })
-        .catch((err) => logger.error({ err }, "failed to restore active devices from Redis"))
+        .catch((err) =>
+            logger.error(
+                { err },
+                "failed to restore active devices from Redis",
+            ),
+        )
         .then(() => rebuild());
 
     refreshTimer = setInterval(() => {
@@ -533,13 +566,23 @@ export function startAggregatorEngine(
 
     const markDeviceActive = async (deviceId: string): Promise<void> => {
         onlineDevices.add(deviceId);
-        markDeviceActiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device active state"));
+        markDeviceActiveInCache(deviceId).catch((err) =>
+            logger.error(
+                { err, deviceId },
+                "failed to persist device active state",
+            ),
+        );
         await rebuildMaps();
     };
 
     const markDeviceInactive = async (deviceId: string): Promise<void> => {
         onlineDevices.delete(deviceId);
-        markDeviceInactiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device inactive state"));
+        markDeviceInactiveInCache(deviceId).catch((err) =>
+            logger.error(
+                { err, deviceId },
+                "failed to persist device inactive state",
+            ),
+        );
         await rebuildMaps();
     };
 
