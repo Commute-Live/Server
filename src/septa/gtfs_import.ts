@@ -127,6 +127,7 @@ const normalizeZipPath = (value: string) =>
         .replace(/\/+$/, "");
 
 const zipJoin = (dir: string, file: string) => (dir ? `${dir}/${file}` : file);
+const stripZipExt = (value: string) => value.replace(/\.zip$/i, "");
 
 async function unzipListEntries(zipPath: string): Promise<string[]> {
     const proc = Bun.spawn(["unzip", "-Z1", zipPath], {
@@ -159,14 +160,47 @@ async function unzipReadTextEntry(zipPath: string, entryPath: string): Promise<s
     return stdout;
 }
 
+async function unzipReadBinaryEntry(zipPath: string, entryPath: string): Promise<Uint8Array> {
+    const proc = Bun.spawn(["unzip", "-p", zipPath, entryPath], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const code = await proc.exited;
+    const bytes = new Uint8Array(await new Response(proc.stdout).arrayBuffer());
+    if (code !== 0) {
+        const err = await new Response(proc.stderr).text();
+        throw new Error(`Failed to read zip entry ${entryPath}: ${err || `exit ${code}`}`);
+    }
+    return bytes;
+}
+
 async function parseZipTextEntries(zipPath: string): Promise<ZipTextEntries> {
     const entryNames = await unzipListEntries(zipPath);
     const out = new Map<string, string>();
     for (const rawPath of entryNames) {
         const path = normalizeZipPath(rawPath);
         if (!path || path.endsWith("/")) continue;
-        if (!path.toLowerCase().endsWith(".txt")) continue;
-        out.set(path, await unzipReadTextEntry(zipPath, rawPath));
+        if (path.toLowerCase().endsWith(".txt")) {
+            out.set(path, await unzipReadTextEntry(zipPath, rawPath));
+            continue;
+        }
+        // Some feeds package bus/rail as nested zip files.
+        if (path.toLowerCase().endsWith(".zip")) {
+            const nestedBytes = await unzipReadBinaryEntry(zipPath, rawPath);
+            const nestedTmpRoot = await mkdtemp(join(tmpdir(), "septa-gtfs-nested-"));
+            try {
+                const nestedZipPath = join(nestedTmpRoot, "nested.zip");
+                await writeFile(nestedZipPath, nestedBytes);
+                const nestedEntries = await parseZipTextEntries(nestedZipPath);
+                const nestedPrefix = stripZipExt(path.split("/").pop() ?? "nested");
+                for (const [nestedPath, content] of nestedEntries.entries()) {
+                    const merged = normalizeZipPath(`${nestedPrefix}/${nestedPath}`);
+                    out.set(merged, content);
+                }
+            } finally {
+                await rm(nestedTmpRoot, { recursive: true, force: true }).catch(() => undefined);
+            }
+        }
     }
     return out;
 }
