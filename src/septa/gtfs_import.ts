@@ -241,6 +241,62 @@ async function findGtfsDataDir(baseDir: string, requiredFiles: string[]): Promis
     throw new Error(`Unable to locate GTFS data files in ${baseDir}`);
 }
 
+async function walkDirs(root: string, maxDepth: number): Promise<string[]> {
+    const out: string[] = [root];
+    if (maxDepth <= 0) return out;
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const child = join(root, entry.name);
+        out.push(...(await walkDirs(child, maxDepth - 1)));
+    }
+    return out;
+}
+
+async function detectSeptaDatasets(outDir: string): Promise<{ busDir: string; railDir: string }> {
+    const required = ["routes.txt", "stops.txt", "trips.txt", "stop_times.txt"];
+    const dirs = await walkDirs(outDir, 4);
+    const candidates = dirs.filter((dir) => required.every((f) => existsSync(join(dir, f))));
+    if (candidates.length === 0) {
+        throw new Error("No GTFS datasets found in unzipped feed");
+    }
+
+    const busByName = candidates.find((d) => /google[_-]?bus/i.test(d));
+    const railByName = candidates.find((d) => /google[_-]?rail/i.test(d));
+    if (busByName && railByName) {
+        return { busDir: busByName, railDir: railByName };
+    }
+
+    const scored = candidates.map((dir) => {
+        let busScore = 0;
+        let railScore = 0;
+        if (existsSync(join(dir, "fare_products.txt")) || existsSync(join(dir, "fare_media.txt"))) {
+            busScore += 3;
+        }
+        if (existsSync(join(dir, "rider_categories.txt")) || existsSync(join(dir, "fare_transfer_rules.txt"))) {
+            busScore += 2;
+        }
+        if (existsSync(join(dir, "shapes.txt"))) busScore += 1;
+        if (existsSync(join(dir, "directions.txt"))) railScore += 1;
+        const lower = dir.toLowerCase();
+        if (lower.includes("bus")) busScore += 2;
+        if (lower.includes("rail")) railScore += 2;
+        return { dir, busScore, railScore };
+    });
+
+    const byBus = [...scored].sort((a, b) => b.busScore - a.busScore);
+    const busDir = byBus[0]?.dir;
+    const railCandidates = scored
+        .filter((s) => s.dir !== busDir)
+        .sort((a, b) => b.railScore - a.railScore);
+    const railDir = railCandidates[0]?.dir;
+
+    if (!busDir || !railDir) {
+        throw new Error("Could not uniquely detect bus/rail GTFS datasets in zip");
+    }
+    return { busDir, railDir };
+}
+
 async function insertChunks(tx: DbLike, table: unknown, rows: unknown[], size = 1000) {
     for (let i = 0; i < rows.length; i += size) {
         const chunk = rows.slice(i, i + size);
@@ -274,19 +330,27 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
     try {
         const unzipped = await unzipToTemp(url);
         tmpRoot = unzipped.tmpRoot;
-        const feedRoot = await resolveSeptaGtfsRoot(unzipped.outDir);
-        const busDir = await findGtfsDataDir(join(feedRoot, "google_bus"), [
-            "routes.txt",
-            "stops.txt",
-            "trips.txt",
-            "stop_times.txt",
-        ]);
-        const railDir = await findGtfsDataDir(join(feedRoot, "google_rail"), [
-            "routes.txt",
-            "stops.txt",
-            "trips.txt",
-            "stop_times.txt",
-        ]);
+        let busDir = "";
+        let railDir = "";
+        try {
+            const feedRoot = await resolveSeptaGtfsRoot(unzipped.outDir);
+            busDir = await findGtfsDataDir(join(feedRoot, "google_bus"), [
+                "routes.txt",
+                "stops.txt",
+                "trips.txt",
+                "stop_times.txt",
+            ]);
+            railDir = await findGtfsDataDir(join(feedRoot, "google_rail"), [
+                "routes.txt",
+                "stops.txt",
+                "trips.txt",
+                "stop_times.txt",
+            ]);
+        } catch {
+            const detected = await detectSeptaDatasets(unzipped.outDir);
+            busDir = detected.busDir;
+            railDir = detected.railDir;
+        }
 
         const [
             railRoutesRaw,
