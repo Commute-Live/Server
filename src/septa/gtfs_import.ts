@@ -215,6 +215,32 @@ async function resolveSeptaGtfsRoot(outDir: string): Promise<string> {
     throw new Error("Unable to locate google_bus/google_rail in unzipped GTFS feed");
 }
 
+async function findGtfsDataDir(baseDir: string, requiredFiles: string[]): Promise<string> {
+    const hasFiles = (dir: string) => requiredFiles.every((f) => existsSync(join(dir, f)));
+    if (hasFiles(baseDir)) return baseDir;
+
+    const entries = await readdir(baseDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const candidate = join(baseDir, entry.name);
+        if (hasFiles(candidate)) return candidate;
+    }
+
+    // one more level deep for occasional nested zip layouts
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const parent = join(baseDir, entry.name);
+        const children = await readdir(parent, { withFileTypes: true }).catch(() => []);
+        for (const child of children) {
+            if (!child.isDirectory()) continue;
+            const candidate = join(parent, child.name);
+            if (hasFiles(candidate)) return candidate;
+        }
+    }
+
+    throw new Error(`Unable to locate GTFS data files in ${baseDir}`);
+}
+
 async function insertChunks(tx: DbLike, table: unknown, rows: unknown[], size = 1000) {
     for (let i = 0; i < rows.length; i += size) {
         const chunk = rows.slice(i, i + size);
@@ -249,8 +275,18 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
         const unzipped = await unzipToTemp(url);
         tmpRoot = unzipped.tmpRoot;
         const feedRoot = await resolveSeptaGtfsRoot(unzipped.outDir);
-        const busDir = join(feedRoot, "google_bus");
-        const railDir = join(feedRoot, "google_rail");
+        const busDir = await findGtfsDataDir(join(feedRoot, "google_bus"), [
+            "routes.txt",
+            "stops.txt",
+            "trips.txt",
+            "stop_times.txt",
+        ]);
+        const railDir = await findGtfsDataDir(join(feedRoot, "google_rail"), [
+            "routes.txt",
+            "stops.txt",
+            "trips.txt",
+            "stop_times.txt",
+        ]);
 
         const [
             railRoutesRaw,
