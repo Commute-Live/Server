@@ -23,7 +23,4 @@ jobs:
             git checkout staging
             git reset --hard origin/staging
 
-            export DD_VERSION=$(git rev-parse --short HEAD)
-            docker compose up -d --build --no-deps api
-
             GTFS_URL="https://www3.septa.org/developer/gtfs_public.zip" ./import-septa-core.sh
