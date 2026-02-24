@@ -241,6 +241,7 @@ export const fetchSeptaSurfaceArrivals = async (
     const route = normalizeRoute(params.line ?? "");
     const stop = (params.stop ?? "").trim();
     const direction = normalizeDirection(params.direction);
+    const realtimeOnly = params.realtime_only === "1";
     if (!route) throw new Error("SEPTA bus route is required (line=<routeId>)");
     if (!stop) throw new Error("SEPTA bus stop is required (stop=<stopId>)");
 
@@ -260,7 +261,7 @@ export const fetchSeptaSurfaceArrivals = async (
             // Keep empty arrivals.
         }
     }
-    if (arrivals.length < 3) {
+    if (!realtimeOnly && arrivals.length < 3) {
         const mode = providerId === "septa-trolley" ? "trolley" : "bus";
         const fallback = await fillSeptaScheduledArrivals({
             mode,

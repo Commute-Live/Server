@@ -78,6 +78,13 @@
       "when": 1772013600000,
       "tag": "0010_septa_route_stops_relax_fk",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1772100000000,
+      "tag": "0011_septa_core_mode_tables",
+      "breakpoints": true
     }
   ]
 }

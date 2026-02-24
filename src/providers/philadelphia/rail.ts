@@ -191,6 +191,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     if (!stationRaw.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
     const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
+    const realtimeOnly = params.realtime_only === "1";
     const requestedLineRaw = normalizeLine(params.line);
     const requestedLineId = resolveSeptaRailRouteId(requestedLineRaw);
     const requestedLineAliases = resolveSeptaRailRouteAliases(requestedLineRaw);
@@ -255,7 +256,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         resolveSeptaRailRouteId(first?.line ?? "") ||
         normalizeLine(first?.line) ||
         "";
-    if (arrivals.length < 3 && requestedOrResolvedLine) {
+    if (!realtimeOnly && arrivals.length < 3 && requestedOrResolvedLine) {
         const fallback = await fillSeptaScheduledArrivals({
             mode: "rail",
             routeId: requestedOrResolvedLine,
