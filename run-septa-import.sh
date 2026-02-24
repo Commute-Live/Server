@@ -28,12 +28,35 @@ curl -fL "${GTFS_URL}" -o "${ZIP_PATH}"
 echo "[2/6] Unzipping into ${OUT_DIR}..."
 unzip -oq "${ZIP_PATH}" -d "${OUT_DIR}"
 
-echo "[3/6] Locating google_bus/google_rail..."
-BUS_DIR="$(find "${OUT_DIR}" -type d -name google_bus | head -n 1 || true)"
-RAIL_DIR="$(find "${OUT_DIR}" -type d -name google_rail | head -n 1 || true)"
+echo "[3/6] Locating/expanding google_bus/google_rail..."
+
+# SEPTA currently provides nested zips in some versions.
+if [ -f "${OUT_DIR}/google_bus.zip" ] && [ ! -d "${OUT_DIR}/google_bus" ]; then
+  mkdir -p "${OUT_DIR}/google_bus"
+  unzip -oq "${OUT_DIR}/google_bus.zip" -d "${OUT_DIR}/google_bus"
+fi
+if [ -f "${OUT_DIR}/google_rail.zip" ] && [ ! -d "${OUT_DIR}/google_rail" ]; then
+  mkdir -p "${OUT_DIR}/google_rail"
+  unzip -oq "${OUT_DIR}/google_rail.zip" -d "${OUT_DIR}/google_rail"
+fi
+
+find_dataset_dir() {
+  # Return a directory containing core GTFS files.
+  ROOT="$1"
+  for d in $(find "${ROOT}" -type d 2>/dev/null); do
+    if [ -f "${d}/routes.txt" ] && [ -f "${d}/stops.txt" ] && [ -f "${d}/trips.txt" ] && [ -f "${d}/stop_times.txt" ]; then
+      echo "${d}"
+      return 0
+    fi
+  done
+  return 1
+}
+
+BUS_DIR="$(find_dataset_dir "${OUT_DIR}/google_bus" || true)"
+RAIL_DIR="$(find_dataset_dir "${OUT_DIR}/google_rail" || true)"
 
 if [ -z "${BUS_DIR}" ] || [ -z "${RAIL_DIR}" ]; then
-  echo "ERROR: Could not find google_bus and google_rail in ${OUT_DIR}"
+  echo "ERROR: Could not find valid bus/rail GTFS datasets in ${OUT_DIR}"
   find "${OUT_DIR}" -maxdepth 4 -type d | sed -n '1,160p'
   exit 1
 fi
