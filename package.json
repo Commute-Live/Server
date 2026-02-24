@@ -12,6 +12,7 @@
     },
     "dependencies": {
         "dd-trace": "^5.87.0",
+        "drizzle-kit": "^0.31.8",
         "dotenv": "^17.2.3",
         "drizzle-orm": "^0.45.1",
         "gtfs-realtime-bindings": "^1.1.1",
@@ -25,7 +26,6 @@
     "devDependencies": {
         "@types/bun": "latest",
         "@types/pg": "^8.16.0",
-        "drizzle-kit": "^0.31.8",
         "tsx": "^4.21.0"
     },
     "peerDependencies": {
