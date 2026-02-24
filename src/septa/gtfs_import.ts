@@ -1,6 +1,7 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import {
     septaIngestRuns,
@@ -195,6 +196,25 @@ async function unzipToTemp(url: string) {
     return { tmpRoot, outDir };
 }
 
+async function resolveSeptaGtfsRoot(outDir: string): Promise<string> {
+    const hasExpectedDirs = (root: string) =>
+        existsSync(join(root, "google_bus")) && existsSync(join(root, "google_rail"));
+
+    if (hasExpectedDirs(outDir)) return outDir;
+
+    const directCandidate = join(outDir, "gtfs_public");
+    if (hasExpectedDirs(directCandidate)) return directCandidate;
+
+    const entries = await readdir(outDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const candidate = join(outDir, entry.name);
+        if (hasExpectedDirs(candidate)) return candidate;
+    }
+
+    throw new Error("Unable to locate google_bus/google_rail in unzipped GTFS feed");
+}
+
 async function insertChunks(tx: DbLike, table: unknown, rows: unknown[], size = 1000) {
     for (let i = 0; i < rows.length; i += size) {
         const chunk = rows.slice(i, i + size);
@@ -228,8 +248,9 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
     try {
         const unzipped = await unzipToTemp(url);
         tmpRoot = unzipped.tmpRoot;
-        const busDir = join(unzipped.outDir, "google_bus");
-        const railDir = join(unzipped.outDir, "google_rail");
+        const feedRoot = await resolveSeptaGtfsRoot(unzipped.outDir);
+        const busDir = join(feedRoot, "google_bus");
+        const railDir = join(feedRoot, "google_rail");
 
         const [
             railRoutesRaw,
