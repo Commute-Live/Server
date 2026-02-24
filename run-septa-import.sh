@@ -10,15 +10,15 @@ if [ -z "${SYNC_TOKEN}" ] && [ -f .env ]; then
   SYNC_TOKEN="$(grep '^SEPTA_SYNC_TOKEN=' .env | head -n1 | cut -d= -f2- || true)"
 fi
 POSTGRES_USER_ENV="${POSTGRES_USER_ENV:-}"
-POSTGRES_DB_ENV="${POSTGRES_DB_ENV:-}"
+POSTGRES_PASSWORD_ENV="${POSTGRES_PASSWORD_ENV:-}"
 if [ -z "${POSTGRES_USER_ENV}" ] && [ -f .env ]; then
   POSTGRES_USER_ENV="$(grep '^POSTGRES_USER=' .env | head -n1 | cut -d= -f2- || true)"
 fi
-if [ -z "${POSTGRES_DB_ENV}" ] && [ -f .env ]; then
-  POSTGRES_DB_ENV="$(grep '^POSTGRES_DB=' .env | head -n1 | cut -d= -f2- || true)"
+if [ -z "${POSTGRES_PASSWORD_ENV}" ] && [ -f .env ]; then
+  POSTGRES_PASSWORD_ENV="$(grep '^POSTGRES_PASSWORD=' .env | head -n1 | cut -d= -f2- || true)"
 fi
 POSTGRES_USER_ENV="${POSTGRES_USER_ENV:-postgres}"
-POSTGRES_DB_ENV="${POSTGRES_DB_ENV:-postgres}"
+POSTGRES_PASSWORD_ENV="${POSTGRES_PASSWORD_ENV:-}"
 
 if [ -z "${SYNC_TOKEN}" ]; then
   echo "ERROR: set SYNC_TOKEN/TOKEN or add SEPTA_SYNC_TOKEN to .env"
@@ -31,6 +31,10 @@ OUT_DIR="${RUN_DIR}/septa_gtfs_${STAMP}"
 ZIP_PATH="${OUT_DIR}/gtfs_public.zip"
 
 mkdir -p "${OUT_DIR}"
+cleanup() {
+  rm -rf "${OUT_DIR}"
+}
+trap cleanup EXIT
 
 echo "[1/6] Downloading GTFS zip..."
 curl -fL "${GTFS_URL}" -o "${ZIP_PATH}"
@@ -89,7 +93,7 @@ echo
 
 echo "[6/6] Verifying DB table counts..."
 if command -v docker >/dev/null 2>&1 && [ -f "${RUN_DIR}/docker-compose.yml" ]; then
-  docker compose exec -T postgres psql -U "${POSTGRES_USER_ENV}" -d "${POSTGRES_DB_ENV}" -c \
+  docker compose exec -T -e PGPASSWORD="${POSTGRES_PASSWORD_ENV}" postgres psql -U "${POSTGRES_USER_ENV}" -d postgres -c \
   "SELECT 'septa_routes' t, count(*) FROM septa_routes
    UNION ALL SELECT 'septa_stops', count(*) FROM septa_stops
    UNION ALL SELECT 'septa_route_stops', count(*) FROM septa_route_stops
@@ -99,4 +103,4 @@ else
   echo "Skipping DB count check (docker compose not available from this directory)."
 fi
 
-echo "Done. Unzipped GTFS kept at: ${OUT_DIR}"
+echo "Done. Temporary GTFS folder removed: ${OUT_DIR}"
