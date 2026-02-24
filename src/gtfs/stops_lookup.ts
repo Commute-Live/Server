@@ -1,4 +1,4 @@
-import { createReadStream, existsSync, readFileSync } from "node:fs";
+import { createReadStream, existsSync, readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import { createInterface } from "node:readline";
 
@@ -7,6 +7,7 @@ let cachedStopOptions: Array<{ stopId: string; stop: string; direction: "N" | "S
 let routeLabelByRouteId: Map<string, string> | null = null;
 const linesByStopCache = new Map<string, string[]>();
 const stopsByLineCache = new Map<string, Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }>>();
+let gtfsSnapshotKey = "";
 
 function parseCsvLine(line: string): string[] {
     const values: string[] = [];
@@ -70,7 +71,47 @@ function findGtfsFilePath(fileName: string): string | null {
     return null;
 }
 
+function fileSnapshot(path: string | null): string {
+    if (!path) return "missing";
+    try {
+        const stat = statSync(path);
+        return `${path}:${stat.size}:${stat.mtimeMs}`;
+    } catch {
+        return `${path}:unreadable`;
+    }
+}
+
+function buildGtfsSnapshotKey(): string {
+    const stopsPath = findStopsPath();
+    const routesPath = findGtfsFilePath("routes.txt");
+    const tripsPath = findGtfsFilePath("trips.txt");
+    const stopTimesPath = findGtfsFilePath("stop_times.txt");
+    return [
+        fileSnapshot(stopsPath),
+        fileSnapshot(routesPath),
+        fileSnapshot(tripsPath),
+        fileSnapshot(stopTimesPath),
+    ].join("|");
+}
+
+function clearDerivedCaches() {
+    stopNameById = null;
+    cachedStopOptions = null;
+    routeLabelByRouteId = null;
+    linesByStopCache.clear();
+    stopsByLineCache.clear();
+}
+
+function ensureGtfsCachesFresh() {
+    const snapshot = buildGtfsSnapshotKey();
+    if (snapshot !== gtfsSnapshotKey) {
+        clearDerivedCaches();
+        gtfsSnapshotKey = snapshot;
+    }
+}
+
 function loadStopMap(): Map<string, string> {
+    ensureGtfsCachesFresh();
     if (stopNameById) return stopNameById;
 
     const map = new Map<string, string>();
@@ -154,6 +195,7 @@ function sortLines(lines: string[]): string[] {
 }
 
 function loadRouteLabels(): Map<string, string> {
+    ensureGtfsCachesFresh();
     if (routeLabelByRouteId) return routeLabelByRouteId;
 
     const map = new Map<string, string>();
@@ -277,6 +319,7 @@ async function collectLinesForTripIds(tripIds: Set<string>): Promise<string[]> {
 }
 
 export async function listLinesForStop(stopId: string): Promise<string[]> {
+    ensureGtfsCachesFresh();
     const normalizedStopId = stopId.trim().toUpperCase();
     if (!normalizedStopId) return [];
 
@@ -290,6 +333,7 @@ export async function listLinesForStop(stopId: string): Promise<string[]> {
 }
 
 export async function listStopsForLine(line: string): Promise<Array<{ stopId: string; stop: string; direction: "N" | "S" | "" }>> {
+    ensureGtfsCachesFresh();
     const normalizedLine = line.trim().toUpperCase();
     if (!normalizedLine) return [];
 
