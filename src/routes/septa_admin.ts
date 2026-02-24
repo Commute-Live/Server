@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
 import { latestSeptaSyncStatus, runSeptaSync } from "../septa/sync.ts";
+import { runSeptaGtfsImport } from "../septa/gtfs_import.ts";
 
 const requireSyncToken = (headerToken?: string | null) => {
     const configured = process.env.SEPTA_SYNC_TOKEN ?? "";
@@ -35,6 +36,24 @@ export function registerSeptaAdmin(app: Hono, deps: dependency) {
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : "SEPTA sync failed";
+            return c.json({ error: message }, 502);
+        }
+    });
+
+    app.post("/admin/septa/import", async (c) => {
+        const auth = requireSyncToken(c.req.header("x-septa-sync-token"));
+        if (!auth.ok) return c.json({ error: auth.error }, auth.code);
+        try {
+            const body = await c.req.json().catch(() => null);
+            const sourceUrl = typeof body?.sourceUrl === "string" ? body.sourceUrl : undefined;
+            const result = await runSeptaGtfsImport(deps.db, sourceUrl);
+            return c.json({
+                status: result.status,
+                runId: result.runId,
+                stats: result.stats,
+            });
+        } catch (err) {
+            const message = err instanceof Error ? err.message : "SEPTA GTFS import failed";
             return c.json({ error: message }, 502);
         }
     });

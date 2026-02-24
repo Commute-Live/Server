@@ -2,8 +2,9 @@ import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { resolveSeptaRailRouteAliases, resolveSeptaRailRouteId, resolveSeptaRailStopName } from "./stops_lookup.ts";
 import { logger } from "../../logger.ts";
+import { fillSeptaScheduledArrivals } from "./schedule_fill.ts";
 
-const SEPTA_BASE = "https://www3.septa.org/api";
+const SEPTA_ARRIVALS_URL = process.env.SEPTA_LIVE_RAIL_URL ?? "https://www3.septa.org/api/Arrivals/index.php";
 const CACHE_TTL_SECONDS = 20;
 const ARRIVALS_RESULTS_LIMIT = 30;
 const SEPTA_DEBUG_FETCH = process.env.SEPTA_DEBUG_FETCH === "1";
@@ -214,7 +215,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     });
     if (direction) search.set("direction", direction);
 
-    const url = `${SEPTA_BASE}/Arrivals/index.php?${search.toString()}`;
+    const url = `${SEPTA_ARRIVALS_URL}?${search.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
         throw new Error(`SEPTA Arrivals error ${res.status} ${res.statusText}`);
@@ -246,9 +247,42 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         }, "SEPTA rail fetch");
     }
 
-    const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
+    let arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
     const first = (direction === "S" ? south : direction === "N" ? north : [...north, ...south])[0];
+    const requestedOrResolvedLine =
+        requestedLineId ||
+        resolveSeptaRailRouteId(first?.line ?? "") ||
+        normalizeLine(first?.line) ||
+        "";
+    if (arrivals.length < 3 && requestedOrResolvedLine) {
+        const fallback = await fillSeptaScheduledArrivals({
+            mode: "rail",
+            routeId: requestedOrResolvedLine,
+            stopInput: stationRaw,
+            direction,
+            nowMs: ctx.now,
+            limit: 3 - arrivals.length,
+        });
+        const seen = new Set(arrivals.map((a) => `${a.arrivalTime}:${a.destination ?? ""}`));
+        for (const row of fallback) {
+            const key = `${row.arrivalTime}:${row.destination ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            arrivals.push({
+                arrivalTime: row.arrivalTime,
+                scheduledTime: row.scheduledTime,
+                delaySeconds: null,
+                destination: row.destination,
+                status: "SCHEDULED",
+                direction: row.direction === "S" ? "S" : "N",
+                line: row.line ?? requestedOrResolvedLine,
+            });
+            if (arrivals.length >= 3) break;
+        }
+        arrivals = arrivals.sort((a, b) => Date.parse(a.arrivalTime!) - Date.parse(b.arrivalTime!));
+    }
+
     const directionLabel =
         cleanDirectionLabel(first?.destination) ||
         cleanDirectionLabel(first?.next_station) ||
@@ -272,7 +306,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     return {
         payload: {
             provider: "septa-rail",
-            line: requestedLineId || resolveSeptaRailRouteId(first?.line ?? "") || normalizeLine(first?.line) || "SEPTA",
+            line: requestedOrResolvedLine || "SEPTA",
             stop: stationLabel,
             stopId: stationRaw,
             stopName: stationLabel,

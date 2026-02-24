@@ -156,3 +156,48 @@ export const septaRouteStops = pgTable(
         }),
     }),
 );
+
+export const septaScheduledStopTimes = pgTable(
+    "septa_scheduled_stop_times",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        routeId: text("route_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        direction: text("direction").notNull().default(""),
+        tripId: text("trip_id").notNull(),
+        serviceId: text("service_id").notNull(),
+        headsign: text("headsign").notNull().default(""),
+        arrivalSeconds: integer("arrival_seconds").notNull(),
+        departureSeconds: integer("departure_seconds"),
+        stopSequence: integer("stop_sequence"),
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.mode, table.tripId, table.stopId, table.arrivalSeconds],
+            name: "pk_septa_scheduled_stop_times",
+        }),
+    }),
+);
+
+export const septaServiceDates = pgTable(
+    "septa_service_dates",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        serviceId: text("service_id").notNull(),
+        serviceDate: text("service_date").notNull(), // YYYYMMDD in America/New_York
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.mode, table.serviceId, table.serviceDate],
+            name: "pk_septa_service_dates",
+        }),
+    }),
+);

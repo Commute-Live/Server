@@ -64,6 +64,13 @@
       "when": 1771948800000,
       "tag": "0008_septa_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1771992000000,
+      "tag": "0009_septa_schedules",
+      "breakpoints": true
     }
   ]
 }
