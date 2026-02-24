@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { existsSync } from "node:fs";
 import { eq } from "drizzle-orm";
 import {
     septaIngestRuns,
@@ -115,6 +116,54 @@ function parseCsvText(content: string): CsvRecord[] {
         rows.push(rec);
     }
     return rows;
+}
+
+async function readCsvFile(path: string, required = true): Promise<CsvRecord[]> {
+    if (!existsSync(path)) {
+        if (!required) return [];
+        throw new Error(`Missing required GTFS file: ${path}`);
+    }
+    return parseCsvText(await readFile(path, "utf8"));
+}
+
+async function unzipToDir(zipPath: string, outDir: string) {
+    const proc = Bun.spawn(["unzip", "-oq", zipPath, "-d", outDir], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const code = await proc.exited;
+    if (code !== 0) {
+        const err = await new Response(proc.stderr).text();
+        throw new Error(`unzip failed for ${zipPath}: ${err || `exit ${code}`}`);
+    }
+}
+
+async function walkDirs(root: string, maxDepth: number): Promise<string[]> {
+    const out: string[] = [root];
+    if (maxDepth <= 0) return out;
+    const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const child = join(root, entry.name);
+        out.push(...(await walkDirs(child, maxDepth - 1)));
+    }
+    return out;
+}
+
+async function findGtfsDatasetDir(root: string): Promise<string | null> {
+    if (!existsSync(root)) return null;
+    const dirs = await walkDirs(root, 4);
+    for (const d of dirs) {
+        if (
+            existsSync(join(d, "routes.txt")) &&
+            existsSync(join(d, "stops.txt")) &&
+            existsSync(join(d, "trips.txt")) &&
+            existsSync(join(d, "stop_times.txt"))
+        ) {
+            return d;
+        }
+    }
+    return null;
 }
 
 const normalizeZipPath = (value: string) =>
@@ -359,10 +408,28 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
         if (!res.ok) throw new Error(`GTFS download failed ${res.status} ${res.statusText}`);
         const zipBytes = Buffer.from(await res.arrayBuffer());
         tmpRoot = await mkdtemp(join(tmpdir(), "septa-gtfs-zip-"));
-        const zipPath = join(tmpRoot, "feed.zip");
+        const zipPath = join(tmpRoot, "gtfs_public.zip");
+        const unzippedRoot = join(tmpRoot, "unzipped");
         await writeFile(zipPath, zipBytes);
-        const zipEntries = await listZipTextEntries(zipPath);
-        const { busDir, railDir } = detectSeptaDatasets(zipEntries);
+        await unzipToDir(zipPath, unzippedRoot);
+
+        const busZipPath = join(unzippedRoot, "google_bus.zip");
+        const railZipPath = join(unzippedRoot, "google_rail.zip");
+        const busRoot = join(unzippedRoot, "google_bus");
+        const railRoot = join(unzippedRoot, "google_rail");
+
+        if (existsSync(busZipPath)) {
+            await unzipToDir(busZipPath, busRoot);
+        }
+        if (existsSync(railZipPath)) {
+            await unzipToDir(railZipPath, railRoot);
+        }
+
+        const busDir = await findGtfsDatasetDir(busRoot);
+        const railDir = await findGtfsDatasetDir(railRoot);
+        if (!busDir || !railDir) {
+            throw new Error(`Could not locate extracted GTFS datasets under ${unzippedRoot}`);
+        }
 
         const [
             railRoutesRaw,
@@ -380,20 +447,20 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             busCalendarRaw,
             busCalendarDatesRaw,
         ] = await Promise.all([
-            readCsvFromZip(zipPath, railDir, "routes.txt", zipEntries),
-            readCsvFromZip(zipPath, railDir, "stops.txt", zipEntries),
-            readCsvFromZip(zipPath, railDir, "trips.txt", zipEntries),
-            readCsvFromZip(zipPath, railDir, "stop_times.txt", zipEntries),
-            readCsvFromZip(zipPath, railDir, "route_stops.txt", zipEntries, false),
-            readCsvFromZip(zipPath, railDir, "calendar.txt", zipEntries, false),
-            readCsvFromZip(zipPath, railDir, "calendar_dates.txt", zipEntries, false),
-            readCsvFromZip(zipPath, busDir, "routes.txt", zipEntries),
-            readCsvFromZip(zipPath, busDir, "stops.txt", zipEntries),
-            readCsvFromZip(zipPath, busDir, "trips.txt", zipEntries),
-            readCsvFromZip(zipPath, busDir, "stop_times.txt", zipEntries),
-            readCsvFromZip(zipPath, busDir, "route_stops.txt", zipEntries, false),
-            readCsvFromZip(zipPath, busDir, "calendar.txt", zipEntries, false),
-            readCsvFromZip(zipPath, busDir, "calendar_dates.txt", zipEntries, false),
+            readCsvFile(join(railDir, "routes.txt")),
+            readCsvFile(join(railDir, "stops.txt")),
+            readCsvFile(join(railDir, "trips.txt")),
+            readCsvFile(join(railDir, "stop_times.txt")),
+            readCsvFile(join(railDir, "route_stops.txt"), false),
+            readCsvFile(join(railDir, "calendar.txt"), false),
+            readCsvFile(join(railDir, "calendar_dates.txt"), false),
+            readCsvFile(join(busDir, "routes.txt")),
+            readCsvFile(join(busDir, "stops.txt")),
+            readCsvFile(join(busDir, "trips.txt")),
+            readCsvFile(join(busDir, "stop_times.txt")),
+            readCsvFile(join(busDir, "route_stops.txt"), false),
+            readCsvFile(join(busDir, "calendar.txt"), false),
+            readCsvFile(join(busDir, "calendar_dates.txt"), false),
         ]);
 
         const routeRows: RouteRow[] = [];
@@ -730,7 +797,6 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
 
         const stats = {
             sourceUrl: url,
-            zipEntries: zipEntries.size,
             busDatasetDir: busDir,
             railDatasetDir: railDir,
             routes: routeRowsDedup.length,
