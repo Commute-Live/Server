@@ -145,11 +145,13 @@ export const setProviderCacheBuffer = async (key: string, value: Buffer, ttlSeco
 };
 
 // ── Device activity helpers ───────────────────────────────────────────────────
-const deviceActiveKey = (deviceId: string) => `device:active:${deviceId}`;
+const DEVICE_ACTIVE_TTL_SECONDS = 7200; // 2 hours — auto-expire stale devices
+const DEVICE_ACTIVE_PREFIX = "device:active:";
+const deviceActiveKey = (deviceId: string) => `${DEVICE_ACTIVE_PREFIX}${deviceId}`;
 
 export async function markDeviceActiveInCache(deviceId: string): Promise<void> {
     const client = await getRedisClient();
-    await client.set(deviceActiveKey(deviceId), "1");
+    await client.set(deviceActiveKey(deviceId), "1", { EX: DEVICE_ACTIVE_TTL_SECONDS });
 }
 
 export async function markDeviceInactiveInCache(deviceId: string): Promise<void> {
@@ -166,6 +168,15 @@ export async function getActiveDeviceIds(deviceIds: string[]): Promise<Set<strin
     deviceIds.forEach((id, i) => {
         if (results[i] !== null) active.add(id);
     });
+    return active;
+}
+
+export async function loadActiveDeviceIds(): Promise<Set<string>> {
+    const client = await getRedisClient();
+    const active = new Set<string>();
+    for await (const key of client.scanIterator({ MATCH: `${DEVICE_ACTIVE_PREFIX}*`, COUNT: 100 })) {
+        active.add(key.slice(DEVICE_ACTIVE_PREFIX.length));
+    }
     return active;
 }
 
