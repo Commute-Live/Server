@@ -13,7 +13,7 @@ WORKDIR /app
 
 COPY --from=installer /app/node_modules ./node_modules
 COPY src ./src
-COPY package.json bun.lock ./
+COPY package.json bun.lock drizzle.config.ts ./
 
 EXPOSE 8080
 
