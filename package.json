@@ -4,6 +4,9 @@
     "type": "module",
     "scripts": {
         "dev": "bun run --hot src/index.ts",
+        "septa:sync": "bun run src/scripts/septa_sync.ts",
+        "septa:import": "bun run src/scripts/septa_gtfs_import.ts",
+        "septa:import:core:local": "bun run src/scripts/septa_import_core_local.ts",
         "db:generate": "drizzle-kit generate",
         "db:migrate": "drizzle-kit migrate",
         "db:studio": "drizzle-kit studio"
