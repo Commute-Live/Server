@@ -25,9 +25,13 @@ export function registerSeptaAdmin(app: Hono, deps: dependency) {
         try {
             const result = await runSeptaSync(deps.db);
             return c.json({
-                status: "ok",
+                status: result.status,
                 runId: result.runId,
                 stats: result.stats,
+                errorsCount:
+                    typeof (result.stats as Record<string, unknown>).errors === "number"
+                        ? Number((result.stats as Record<string, unknown>).errors)
+                        : 0,
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : "SEPTA sync failed";
