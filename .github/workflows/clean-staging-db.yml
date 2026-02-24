@@ -1,0 +1,25 @@
+name: Clean Staging DB
+
+on:
+  schedule:
+    - cron: "0 6 * * *" # 6:00 AM UTC daily
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  clean:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete load test data from staging postgres
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          username: ${{ secrets.STAGE_SSH_USER }}
+          port: ${{ secrets.STAGE_SSH_PORT }}
+          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          script: |
+            source /opt/Server/.env
+            docker compose -f /opt/Server/docker-compose.yml exec -T postgres \
+              psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" -c "
+                DELETE FROM users WHERE email LIKE 'loadtest-%';
+                DELETE FROM devices WHERE id LIKE 'loadtest-%';
+              "

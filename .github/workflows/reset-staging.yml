@@ -19,4 +19,15 @@ jobs:
           fetch-depth: 0
 
       - name: Force-push main onto staging
-        run: git push origin HEAD:staging --force
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+        run: git push https://x-access-token:${GH_PAT}@github.com/${{ github.repository }}.git HEAD:staging --force
+
+      - name: Deploy staging via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          username: ${{ secrets.STAGE_SSH_USER }}
+          port: ${{ secrets.STAGE_SSH_PORT }}
+          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          script: /opt/Server/deploy-staging.sh
