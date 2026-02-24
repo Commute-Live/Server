@@ -371,14 +371,20 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         }
     };
 
-    const rebuild = async () => {
+    const rebuildMaps = async () => {
         const subs = await loadSubscriptions();
-        const maps = buildFanoutMaps(subs, providers);
+        const totalDevices = new Set(subs.map((s) => s.deviceId)).size;
+        const activeSubs = subs.filter((sub) => onlineDevices.has(sub.deviceId));
+        const maps = buildFanoutMaps(activeSubs, providers);
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
-        metrics.gauge("engine.devices.registered", deviceToKeys.size);
+        metrics.gauge("engine.devices.registered", totalDevices);
         metrics.gauge("engine.fanout.keys", fanout.size);
+    };
+
+    const rebuild = async () => {
+        await rebuildMaps();
         await scheduleFetches();
     };
 
@@ -431,16 +437,16 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         if (pushTimer) clearInterval(pushTimer);
     };
 
-    const markDeviceActive = (deviceId: string): Promise<void> => {
+    const markDeviceActive = async (deviceId: string): Promise<void> => {
         onlineDevices.add(deviceId);
         markDeviceActiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device active state"));
-        return Promise.resolve();
+        await rebuildMaps();
     };
 
-    const markDeviceInactive = (deviceId: string): Promise<void> => {
+    const markDeviceInactive = async (deviceId: string): Promise<void> => {
         onlineDevices.delete(deviceId);
         markDeviceInactiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device inactive state"));
-        return Promise.resolve();
+        await rebuildMaps();
     };
 
     return {
