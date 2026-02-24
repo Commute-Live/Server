@@ -3,3 +3,25 @@
 .vscode
 node_modules
 .env
+.env.*
+
+# Config/tooling not needed at runtime
+docker
+drizzle.config.ts
+tsconfig.json
+
+# Docs and non-runtime files
+docs
+logo
+data
+structure
+infra
+tools
+CLAUDE.md
+README.md
+LICENSE
+mosquitto-setup.txt
+*.sh
+
+# Lock files (copied explicitly where needed)
+package-lock.json
