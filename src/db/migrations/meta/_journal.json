@@ -71,6 +71,13 @@
       "when": 1771992000000,
       "tag": "0009_septa_schedules",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1772013600000,
+      "tag": "0010_septa_route_stops_relax_fk",
+      "breakpoints": true
     }
   ]
 }

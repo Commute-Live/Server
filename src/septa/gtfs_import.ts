@@ -360,6 +360,9 @@ const parseIntOrNull = (value: string | undefined) => {
     return Math.trunc(n);
 };
 
+const parseRouteStopSequence = (row: CsvRecord) =>
+    parseIntOrNull(row.route_stop_sort_order) ?? parseIntOrNull(row.stop_sequence);
+
 const parseTimeToSeconds = (value: string | undefined): number | null => {
     if (!value) return null;
     const match = value.trim().match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
@@ -524,6 +527,8 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             });
         }
 
+        const knownRouteByMode = new Set(routeRows.map((r) => `${r.mode}:${r.id}`));
+
         const stopByKey = new Map<string, StopRow>();
         const globalBusStops = new Map<string, Omit<StopRow, "mode">>();
         for (const row of railStopsRaw) {
@@ -551,6 +556,12 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
                 lat: parseNumberOrNull(row.stop_lat),
                 lon: parseNumberOrNull(row.stop_lon),
             });
+        }
+        const knownStopByMode = new Set<string>();
+        for (const key of stopByKey.keys()) knownStopByMode.add(key);
+        for (const stopId of globalBusStops.keys()) {
+            knownStopByMode.add(`bus:${stopId}`);
+            knownStopByMode.add(`trolley:${stopId}`);
         }
 
         const tripById = new Map<string, {
@@ -589,6 +600,9 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
         });
 
         const routeStopByKey = new Map<string, RouteStopRow>();
+        let routeStopsDroppedMissingRoute = 0;
+        let routeStopsDroppedMissingStop = 0;
+        let routeStopsMissingStopReference = 0;
         const touchRouteStop = (row: RouteStopRow) => {
             const key = `${row.mode}:${row.routeId}:${row.stopId}:${row.direction}`;
             const prev = routeStopByKey.get(key);
@@ -613,12 +627,19 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             const routeId = normalizeRouteId(row.route_id ?? "");
             const stopId = row.stop_id?.trim();
             if (!routeId || !stopId) continue;
+            if (!knownRouteByMode.has(`rail:${routeId}`)) {
+                routeStopsDroppedMissingRoute += 1;
+                continue;
+            }
+            if (!knownStopByMode.has(`rail:${stopId}`)) {
+                routeStopsMissingStopReference += 1;
+            }
             touchRouteStop({
                 mode: "rail",
                 routeId,
                 stopId,
                 direction: normalizeDirection("rail", row.direction ?? row.direction_id),
-                stopSequence: parseIntOrNull(row.stop_sequence),
+                stopSequence: parseRouteStopSequence(row),
             });
         }
         for (const row of busRouteStopsRaw) {
@@ -626,12 +647,19 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             const stopId = row.stop_id?.trim();
             if (!routeId || !stopId) continue;
             const mode = routeModeById.get(routeId) ?? "bus";
+            if (!knownRouteByMode.has(`${mode}:${routeId}`)) {
+                routeStopsDroppedMissingRoute += 1;
+                continue;
+            }
+            if (!knownStopByMode.has(`${mode}:${stopId}`)) {
+                routeStopsMissingStopReference += 1;
+            }
             touchRouteStop({
                 mode,
                 routeId,
                 stopId,
                 direction: normalizeDirection(mode, row.direction ?? row.direction_id),
-                stopSequence: parseIntOrNull(row.stop_sequence),
+                stopSequence: parseRouteStopSequence(row),
             });
         }
 
@@ -759,6 +787,7 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             new Map(stopRows.map((s) => [`${s.mode}:${s.id}`, s])).values(),
         );
         const routeStopRows = Array.from(routeStopByKey.values());
+        const routeStopsWithNullSequence = routeStopRows.filter((r) => r.stopSequence === null).length;
         const serviceDateRows = Array.from(serviceDates.values());
 
         await db.transaction(async (tx: DbLike) => {
@@ -855,6 +884,11 @@ export async function runSeptaGtfsImport(db: DbLike, sourceUrl?: string): Promis
             routes: routeRowsDedup.length,
             stops: stopRowsDedup.length,
             routeStops: routeStopRows.length,
+            routeStopsInserted: routeStopRows.length,
+            routeStopsDroppedMissingRoute,
+            routeStopsDroppedMissingStop,
+            routeStopsMissingStopReference,
+            routeStopsWithNullSequence,
             scheduledStopTimes: scheduledStopTimesCount,
             serviceDates: serviceDateRows.length,
             errors: errors.length,

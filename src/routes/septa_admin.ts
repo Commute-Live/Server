@@ -54,7 +54,17 @@ export function registerSeptaAdmin(app: Hono, deps: dependency) {
             });
         } catch (err) {
             const message = err instanceof Error ? err.message : "SEPTA GTFS import failed";
-            return c.json({ error: message }, 502);
+            const causeMessage =
+                err && typeof err === "object" && "cause" in err && err.cause instanceof Error
+                    ? err.cause.message
+                    : undefined;
+            return c.json(
+                {
+                    error: message,
+                    details: causeMessage ? causeMessage.slice(0, 500) : undefined,
+                },
+                502,
+            );
         }
     });
 }
