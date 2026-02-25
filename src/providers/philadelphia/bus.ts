@@ -3,7 +3,6 @@ import { Buffer } from "buffer";
 import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { getProviderCacheBuffer, setProviderCacheBuffer } from "../../cache.ts";
-import { fillSeptaScheduledArrivals } from "./schedule_fill.ts";
 
 const TRIP_FEED_URL =
     process.env.SEPTA_LIVE_BUS_RT_URL ?? "https://www3.septa.org/gtfsrt/septa-pa-us/Trip/rtTripUpdates.pb";
@@ -241,7 +240,6 @@ export const fetchSeptaSurfaceArrivals = async (
     const route = normalizeRoute(params.line ?? "");
     const stop = (params.stop ?? "").trim();
     const direction = normalizeDirection(params.direction);
-    const realtimeOnly = params.realtime_only === "1";
     if (!route) throw new Error("SEPTA bus route is required (line=<routeId>)");
     if (!stop) throw new Error("SEPTA bus stop is required (stop=<stopId>)");
 
@@ -260,31 +258,6 @@ export const fetchSeptaSurfaceArrivals = async (
         } catch {
             // Keep empty arrivals.
         }
-    }
-    if (!realtimeOnly && arrivals.length < 3) {
-        const mode = providerId === "septa-trolley" ? "trolley" : "bus";
-        const fallback = await fillSeptaScheduledArrivals({
-            mode,
-            routeId: route,
-            stopInput: stop,
-            direction,
-            nowMs: ctx.now,
-            limit: 3 - arrivals.length,
-        });
-        const seen = new Set(arrivals.map((a) => `${a.arrivalTime}:${a.destination ?? ""}`));
-        for (const row of fallback) {
-            const key = `${row.arrivalTime}:${row.destination ?? ""}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            arrivals.push({
-                arrivalTime: row.arrivalTime,
-                scheduledTime: row.scheduledTime,
-                delaySeconds: null,
-                destination: row.destination,
-            });
-            if (arrivals.length >= 3) break;
-        }
-        arrivals = arrivals.sort((a, b) => Date.parse(a.arrivalTime) - Date.parse(b.arrivalTime));
     }
     const stopName = stop;
     const destination = arrivals.find((a) => typeof a.destination === "string" && a.destination.length > 0)?.destination;
