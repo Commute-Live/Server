@@ -9,9 +9,13 @@ async function main() {
         ? resolve(process.cwd(), sourceDirArg)
         : join(process.cwd(), "septa");
 
-    const { db } = startDb();
-    const result = await runSeptaCoreLocalImport(db, sourceDir);
-    console.log(JSON.stringify(result, null, 2));
+    const { db, sql } = startDb();
+    try {
+        const result = await runSeptaCoreLocalImport(db, sourceDir);
+        console.log(JSON.stringify(result, null, 2));
+    } finally {
+        await sql.end();
+    }
 }
 
 main().catch((err) => {
