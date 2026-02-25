@@ -2,7 +2,6 @@ import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { resolveSeptaRailRouteAliases, resolveSeptaRailRouteId, resolveSeptaRailStopName } from "./stops_lookup.ts";
 import { logger } from "../../logger.ts";
-import { fillSeptaScheduledArrivals } from "./schedule_fill.ts";
 
 const SEPTA_ARRIVALS_URL = process.env.SEPTA_LIVE_RAIL_URL ?? "https://www3.septa.org/api/Arrivals/index.php";
 const CACHE_TTL_SECONDS = 20;
@@ -191,7 +190,6 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     if (!stationRaw.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
     const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
-    const realtimeOnly = params.realtime_only === "1";
     const requestedLineRaw = normalizeLine(params.line);
     const requestedLineId = resolveSeptaRailRouteId(requestedLineRaw);
     const requestedLineAliases = resolveSeptaRailRouteAliases(requestedLineRaw);
@@ -256,33 +254,6 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         resolveSeptaRailRouteId(first?.line ?? "") ||
         normalizeLine(first?.line) ||
         "";
-    if (!realtimeOnly && arrivals.length < 3 && requestedOrResolvedLine) {
-        const fallback = await fillSeptaScheduledArrivals({
-            mode: "rail",
-            routeId: requestedOrResolvedLine,
-            stopInput: stationRaw,
-            direction,
-            nowMs: ctx.now,
-            limit: 3 - arrivals.length,
-        });
-        const seen = new Set(arrivals.map((a) => `${a.arrivalTime}:${a.destination ?? ""}`));
-        for (const row of fallback) {
-            const key = `${row.arrivalTime}:${row.destination ?? ""}`;
-            if (seen.has(key)) continue;
-            seen.add(key);
-            arrivals.push({
-                arrivalTime: row.arrivalTime,
-                scheduledTime: row.scheduledTime,
-                delaySeconds: null,
-                destination: row.destination,
-                status: "SCHEDULED",
-                direction: row.direction === "S" ? "S" : "N",
-                line: row.line ?? requestedOrResolvedLine,
-            });
-            if (arrivals.length >= 3) break;
-        }
-        arrivals = arrivals.sort((a, b) => Date.parse(a.arrivalTime!) - Date.parse(b.arrivalTime!));
-    }
 
     const directionLabel =
         cleanDirectionLabel(first?.destination) ||
