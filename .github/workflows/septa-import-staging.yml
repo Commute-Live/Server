@@ -20,7 +20,7 @@ jobs:
             cd /opt/Server
 
             git fetch origin
-            git checkout staging
-            git reset --hard origin/staging
+            git checkout "${{ github.ref_name }}"
+            git reset --hard "origin/${{ github.ref_name }}"
 
             GTFS_URL="https://www3.septa.org/developer/gtfs_public.zip" ./import-septa-core.sh
