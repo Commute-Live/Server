@@ -25,4 +25,4 @@ jobs:
             git checkout "${{ github.ref_name }}"
             git reset --hard "origin/${{ github.ref_name }}"
 
-            ./import-mta-core.sh
+            MTA_IMPORT_ENGINE=python ./import-mta-core.sh

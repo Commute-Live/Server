@@ -4,6 +4,9 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
 WORK_DIR="$(mktemp -d "/tmp/mta-core-import-XXXXXX")"
 SCRIPT_STARTED_AT="$(date +%s)"
+MTA_IMPORT_ENGINE="${MTA_IMPORT_ENGINE:-python}"
+MTA_PARTRIDGE_VENV="${MTA_PARTRIDGE_VENV:-${ROOT_DIR}/.venv-partridge}"
+MTA_PARTRIDGE_DEPS="${MTA_PARTRIDGE_DEPS:-numpy==1.24.4 pandas==1.5.3 partridge==1.1.2 psycopg2-binary==2.9.9}"
 
 MTA_SUBWAY_GTFS_URL="${MTA_SUBWAY_GTFS_URL:-https://rrgtfsfeeds.s3.amazonaws.com/gtfs_supplemented.zip}"
 MTA_LIRR_GTFS_URL="${MTA_LIRR_GTFS_URL:-https://rrgtfsfeeds.s3.amazonaws.com/gtfslirr.zip}"
@@ -41,6 +44,36 @@ require_command() {
   if ! command -v "${cmd}" >/dev/null 2>&1; then
     echo "ERROR: required command not found: ${cmd}"
     exit 1
+  fi
+}
+
+ensure_python_venv() {
+  require_command python3
+  if ! python3 -m venv -h >/dev/null 2>&1; then
+    echo "ERROR: python3 venv support is missing. Install python3-venv on the server."
+    exit 1
+  fi
+
+  if [[ ! -f "${MTA_PARTRIDGE_VENV}/bin/activate" ]]; then
+    log "Creating Python venv at ${MTA_PARTRIDGE_VENV}"
+    python3 -m venv "${MTA_PARTRIDGE_VENV}"
+  fi
+
+  # shellcheck source=/dev/null
+  source "${MTA_PARTRIDGE_VENV}/bin/activate"
+
+  local stamp_file="${MTA_PARTRIDGE_VENV}/.mta_partridge_deps"
+  local current_deps=""
+  if [[ -f "${stamp_file}" ]]; then
+    current_deps="$(cat "${stamp_file}")"
+  fi
+
+  if [[ "${current_deps}" != "${MTA_PARTRIDGE_DEPS}" ]]; then
+    log "Installing Python dependencies for Partridge importer"
+    python -m pip install --no-cache-dir --upgrade pip
+    # shellcheck disable=SC2086
+    python -m pip install --no-cache-dir ${MTA_PARTRIDGE_DEPS}
+    printf '%s' "${MTA_PARTRIDGE_DEPS}" > "${stamp_file}"
   fi
 }
 
@@ -85,12 +118,6 @@ cd "${ROOT_DIR}"
 
 if [[ ! -f "${ROOT_DIR}/docker-compose.yml" ]]; then
   echo "ERROR: docker-compose.yml not found in ${ROOT_DIR}"
-  exit 1
-fi
-
-API_CID="$(docker compose ps -q api || true)"
-if [[ -z "${API_CID}" ]]; then
-  echo "ERROR: api container is not running. Start it before importing."
   exit 1
 fi
 
@@ -140,15 +167,37 @@ for f in stops.txt routes.txt trips.txt stop_times.txt; do
   cp "${BUS_BUSCO_DIR}/${f}" "${NORMALIZED_DIR}/bus/busco/${f}"
 done
 
-log "[4/7] Copying normalized datasets into api container"
-docker compose exec -T api sh -lc "rm -rf /tmp/mta_core_import && mkdir -p /tmp/mta_core_import"
-docker cp "${NORMALIZED_DIR}/." "${API_CID}:/tmp/mta_core_import/"
+case "${MTA_IMPORT_ENGINE}" in
+  python)
+    log "[4/7] Bootstrapping Partridge environment"
+    ensure_python_venv
+    IMPORT_STARTED_AT="$(date +%s)"
+    log "[5/7] Running DB import on host via Partridge"
+    python "${ROOT_DIR}/src/scripts/mta_import_core_partridge.py" "${NORMALIZED_DIR}"
+    IMPORT_FINISHED_AT="$(date +%s)"
+    log "[5/7] DB import completed in $((IMPORT_FINISHED_AT - IMPORT_STARTED_AT))s"
+    ;;
+  bun)
+    API_CID="$(docker compose ps -q api || true)"
+    if [[ -z "${API_CID}" ]]; then
+      echo "ERROR: api container is not running. Start it before importing."
+      exit 1
+    fi
+    log "[4/7] Copying normalized datasets into api container"
+    docker compose exec -T api sh -lc "rm -rf /tmp/mta_core_import && mkdir -p /tmp/mta_core_import"
+    docker cp "${NORMALIZED_DIR}/." "${API_CID}:/tmp/mta_core_import/"
 
-IMPORT_STARTED_AT="$(date +%s)"
-log "[5/7] Running DB import in api container"
-docker compose exec -T api bun run src/scripts/mta_import_core_local.ts /tmp/mta_core_import
-IMPORT_FINISHED_AT="$(date +%s)"
-log "[5/7] DB import completed in $((IMPORT_FINISHED_AT - IMPORT_STARTED_AT))s"
+    IMPORT_STARTED_AT="$(date +%s)"
+    log "[5/7] Running DB import in api container"
+    docker compose exec -T api bun run src/scripts/mta_import_core_local.ts /tmp/mta_core_import
+    IMPORT_FINISHED_AT="$(date +%s)"
+    log "[5/7] DB import completed in $((IMPORT_FINISHED_AT - IMPORT_STARTED_AT))s"
+    ;;
+  *)
+    echo "ERROR: invalid MTA_IMPORT_ENGINE=${MTA_IMPORT_ENGINE}. Use 'python' or 'bun'."
+    exit 1
+    ;;
+esac
 
 log "[6/7] Verifying core table counts"
 docker compose exec -T postgres psql \
