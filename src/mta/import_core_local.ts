@@ -2,6 +2,7 @@ import { constants as fsConstants, createReadStream } from "node:fs";
 import { access, readdir } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { createInterface } from "node:readline";
+import { sql } from "drizzle-orm";
 import {
     mtaBusRouteStops,
     mtaBusRoutes,
@@ -76,6 +77,7 @@ type RouteStopAccum = {
 type ProcessResult = {
     counts: ModeCounts;
     warnings: ModeWarnings;
+    missingStopIds: string[];
     stationsRows: Array<{
         stopId: string;
         stopName: string;
@@ -106,6 +108,12 @@ type ProcessResult = {
 
 const REQUIRED_CORE_FILES = ["stops.txt", "routes.txt", "trips.txt", "stop_times.txt"] as const;
 const BATCH_SIZE = 1000;
+
+const nowIso = () => new Date().toISOString();
+const logImport = (message: string) => {
+    console.log(`[mta-import] ${nowIso()} ${message}`);
+};
+const elapsedSeconds = (startedAtMs: number) => ((Date.now() - startedAtMs) / 1000).toFixed(1);
 
 const MODE_DEFAULT_ROUTE_TYPE: Record<MtaMode, number> = {
     subway: 1,
@@ -363,7 +371,10 @@ function mergeRouteStop(routeStopMap: Map<string, RouteStopAccum>, next: RouteSt
     }
 }
 
-async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<ProcessResult> {
+async function processMode(mode: MtaMode, datasetDirs: string[], label: string): Promise<ProcessResult> {
+    const modeStartedAt = Date.now();
+    logImport(`${label}: parsing ${datasetDirs.length} dataset(s)`);
+
     const stationMap = new Map<string, StationAccum>();
     const routeMap = new Map<string, RouteAccum>();
     const routeStopMap = new Map<string, RouteStopAccum>();
@@ -372,14 +383,20 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
     const missingStopRefSet = new Set<string>();
 
     for (const datasetDir of datasetDirs) {
+        const datasetStartedAt = Date.now();
         const stopsPath = join(datasetDir, "stops.txt");
         const routesPath = join(datasetDir, "routes.txt");
         const tripsPath = join(datasetDir, "trips.txt");
         const stopTimesPath = join(datasetDir, "stop_times.txt");
 
         const rawStopToStation = new Map<string, string>();
+        let stopsRowsParsed = 0;
+        let routesRowsParsed = 0;
+        let tripsRowsParsed = 0;
+        let stopTimesRowsParsed = 0;
 
         await forEachCsvRow(stopsPath, ["stop_id", "stop_name"], (cols, index) => {
+            stopsRowsParsed += 1;
             mergeStation(
                 stationMap,
                 rawStopToStation,
@@ -393,6 +410,7 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
         });
 
         await forEachCsvRow(routesPath, ["route_id"], (cols, index) => {
+            routesRowsParsed += 1;
             const routeId = normalizeRouteId(getCsvValue(cols, index, "route_id"));
             if (!routeId) return;
 
@@ -412,6 +430,7 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
 
         const tripMap = new Map<string, { routeId: string; directionId: number }>();
         await forEachCsvRow(tripsPath, ["trip_id", "route_id"], (cols, index) => {
+            tripsRowsParsed += 1;
             const tripId = getCsvValue(cols, index, "trip_id");
             const routeId = normalizeRouteId(getCsvValue(cols, index, "route_id"));
             if (!tripId || !routeId) return;
@@ -422,6 +441,7 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
         });
 
         await forEachCsvRow(stopTimesPath, ["trip_id", "stop_id"], (cols, index) => {
+            stopTimesRowsParsed += 1;
             const tripId = getCsvValue(cols, index, "trip_id");
             const rawStopId = getCsvValue(cols, index, "stop_id");
             if (!tripId || !rawStopId) return;
@@ -445,6 +465,11 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
                 routeStopSortOrder: parseIntOrNull(getCsvValue(cols, index, "stop_sequence")),
             });
         });
+
+        logImport(
+            `${label}: processed ${datasetDir} in ${elapsedSeconds(datasetStartedAt)}s ` +
+                `(rows stops=${stopsRowsParsed}, routes=${routesRowsParsed}, trips=${tripsRowsParsed}, stop_times=${stopTimesRowsParsed})`,
+        );
     }
 
     const stationsRows = Array.from(stationMap.values())
@@ -482,6 +507,11 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
         })
         .map((row) => ({ ...row }));
 
+    logImport(
+        `${label}: parse complete in ${elapsedSeconds(modeStartedAt)}s ` +
+            `(unique stations=${stationsRows.length}, routes=${routesRows.length}, routeStops=${routeStopsRows.length})`,
+    );
+
     return {
         counts: {
             stations: stationsRows.length,
@@ -493,6 +523,7 @@ async function processMode(mode: MtaMode, datasetDirs: string[]): Promise<Proces
             missingStopRefs: missingStopRefSet.size,
             sampleMissingStopIds: Array.from(missingStopRefSet).slice(0, 50),
         },
+        missingStopIds: Array.from(missingStopRefSet),
         stationsRows,
         routesRows,
         routeStopsRows,
@@ -507,7 +538,70 @@ async function insertChunks(tx: DbLike, table: unknown, rows: unknown[]) {
     }
 }
 
+async function insertChunksOnConflictDoNothing(tx: DbLike, table: unknown, rows: unknown[]) {
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const chunk = rows.slice(i, i + BATCH_SIZE);
+        if (chunk.length === 0) continue;
+        await tx.insert(table).values(chunk).onConflictDoNothing();
+    }
+}
+
+async function upsertBusStationsChunks(
+    tx: DbLike,
+    rows: ProcessResult["stationsRows"],
+) {
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const chunk = rows.slice(i, i + BATCH_SIZE);
+        if (chunk.length === 0) continue;
+
+        await tx
+            .insert(mtaBusStations)
+            .values(chunk)
+            .onConflictDoUpdate({
+                target: mtaBusStations.stopId,
+                set: {
+                    stopName: sql`excluded.stop_name`,
+                    stopLat: sql`coalesce(excluded.stop_lat, ${mtaBusStations.stopLat})`,
+                    stopLon: sql`coalesce(excluded.stop_lon, ${mtaBusStations.stopLon})`,
+                    parentStation: sql`coalesce(excluded.parent_station, ${mtaBusStations.parentStation})`,
+                    childStopIdsJson: sql`excluded.child_stop_ids_json`,
+                    importedAt: sql`now()`,
+                },
+            });
+    }
+}
+
+async function upsertBusRoutesChunks(
+    tx: DbLike,
+    rows: ProcessResult["routesRows"],
+) {
+    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+        const chunk = rows.slice(i, i + BATCH_SIZE);
+        if (chunk.length === 0) continue;
+
+        await tx
+            .insert(mtaBusRoutes)
+            .values(chunk)
+            .onConflictDoUpdate({
+                target: mtaBusRoutes.routeId,
+                set: {
+                    agencyId: sql`coalesce(excluded.agency_id, ${mtaBusRoutes.agencyId})`,
+                    routeShortName: sql`coalesce(nullif(excluded.route_short_name, ''), ${mtaBusRoutes.routeShortName})`,
+                    routeLongName: sql`coalesce(nullif(excluded.route_long_name, ''), ${mtaBusRoutes.routeLongName})`,
+                    routeDesc: sql`coalesce(excluded.route_desc, ${mtaBusRoutes.routeDesc})`,
+                    routeType: sql`excluded.route_type`,
+                    routeUrl: sql`coalesce(excluded.route_url, ${mtaBusRoutes.routeUrl})`,
+                    routeColor: sql`coalesce(excluded.route_color, ${mtaBusRoutes.routeColor})`,
+                    routeTextColor: sql`coalesce(excluded.route_text_color, ${mtaBusRoutes.routeTextColor})`,
+                    routeSortOrder: sql`coalesce(excluded.route_sort_order, ${mtaBusRoutes.routeSortOrder})`,
+                    importedAt: sql`now()`,
+                },
+            });
+    }
+}
+
 export async function runMtaCoreLocalImport(db: DbLike, sourceDirInput: string): Promise<ImportStats> {
+    const importStartedAt = Date.now();
     const sourceDir = resolve(sourceDirInput);
 
     const subwayDir = await resolveSingleDatasetDir(join(sourceDir, "subway"), "subway");
@@ -518,12 +612,27 @@ export async function runMtaCoreLocalImport(db: DbLike, sourceDirInput: string):
         throw new Error(`Missing GTFS dataset for mode bus: ${join(sourceDir, "bus")}`);
     }
 
-    const subway = await processMode("subway", [subwayDir]);
-    const lirr = await processMode("lirr", [lirrDir]);
-    const mnr = await processMode("mnr", [mnrDir]);
-    const bus = await processMode("bus", busDirs);
+    const counts: Record<MtaMode, ModeCounts> = {
+        subway: { stations: 0, routes: 0, routeStops: 0 },
+        bus: { stations: 0, routes: 0, routeStops: 0 },
+        lirr: { stations: 0, routes: 0, routeStops: 0 },
+        mnr: { stations: 0, routes: 0, routeStops: 0 },
+    };
+    const warnings: Record<MtaMode, ModeWarnings> = {
+        subway: { missingTripRefs: 0, missingStopRefs: 0, sampleMissingStopIds: [] },
+        bus: { missingTripRefs: 0, missingStopRefs: 0, sampleMissingStopIds: [] },
+        lirr: { missingTripRefs: 0, missingStopRefs: 0, sampleMissingStopIds: [] },
+        mnr: { missingTripRefs: 0, missingStopRefs: 0, sampleMissingStopIds: [] },
+    };
+
+    const busStationIds = new Set<string>();
+    const busRouteIds = new Set<string>();
+    const busRouteStopKeys = new Set<string>();
+    const busMissingStopIds = new Set<string>();
+    let busMissingTripRefs = 0;
 
     await db.transaction(async (tx: DbLike) => {
+        logImport("clearing all MTA core tables");
         await tx.delete(mtaSubwayRouteStops);
         await tx.delete(mtaSubwayRoutes);
         await tx.delete(mtaSubwayStations);
@@ -537,37 +646,78 @@ export async function runMtaCoreLocalImport(db: DbLike, sourceDirInput: string):
         await tx.delete(mtaMnrRoutes);
         await tx.delete(mtaMnrStations);
 
+        const subway = await processMode("subway", [subwayDir], "subway");
         await insertChunks(tx, mtaSubwayStations, subway.stationsRows);
         await insertChunks(tx, mtaSubwayRoutes, subway.routesRows);
         await insertChunks(tx, mtaSubwayRouteStops, subway.routeStopsRows);
+        counts.subway = subway.counts;
+        warnings.subway = subway.warnings;
+        logImport(
+            `subway: wrote stations=${subway.counts.stations}, routes=${subway.counts.routes}, routeStops=${subway.counts.routeStops}`,
+        );
 
-        await insertChunks(tx, mtaBusStations, bus.stationsRows);
-        await insertChunks(tx, mtaBusRoutes, bus.routesRows);
-        await insertChunks(tx, mtaBusRouteStops, bus.routeStopsRows);
-
+        const lirr = await processMode("lirr", [lirrDir], "lirr");
         await insertChunks(tx, mtaLirrStations, lirr.stationsRows);
         await insertChunks(tx, mtaLirrRoutes, lirr.routesRows);
         await insertChunks(tx, mtaLirrRouteStops, lirr.routeStopsRows);
+        counts.lirr = lirr.counts;
+        warnings.lirr = lirr.warnings;
+        logImport(`lirr: wrote stations=${lirr.counts.stations}, routes=${lirr.counts.routes}, routeStops=${lirr.counts.routeStops}`);
 
+        const mnr = await processMode("mnr", [mnrDir], "mnr");
         await insertChunks(tx, mtaMnrStations, mnr.stationsRows);
         await insertChunks(tx, mtaMnrRoutes, mnr.routesRows);
         await insertChunks(tx, mtaMnrRouteStops, mnr.routeStopsRows);
+        counts.mnr = mnr.counts;
+        warnings.mnr = mnr.warnings;
+        logImport(`mnr: wrote stations=${mnr.counts.stations}, routes=${mnr.counts.routes}, routeStops=${mnr.counts.routeStops}`);
+
+        for (let i = 0; i < busDirs.length; i++) {
+            const busDir = busDirs[i] as string;
+            const busDatasetLabel = `bus dataset ${i + 1}/${busDirs.length} (${busDir.split("/").at(-1) ?? busDir})`;
+            const bus = await processMode("bus", [busDir], busDatasetLabel);
+
+            await upsertBusStationsChunks(tx, bus.stationsRows);
+            await upsertBusRoutesChunks(tx, bus.routesRows);
+            await insertChunksOnConflictDoNothing(tx, mtaBusRouteStops, bus.routeStopsRows);
+
+            for (const row of bus.stationsRows) {
+                busStationIds.add(row.stopId);
+            }
+            for (const row of bus.routesRows) {
+                busRouteIds.add(row.routeId);
+            }
+            for (const row of bus.routeStopsRows) {
+                busRouteStopKeys.add(`${row.routeId}|${row.directionId}|${row.stopId}`);
+            }
+            busMissingTripRefs += bus.warnings.missingTripRefs;
+            for (const missingStopId of bus.missingStopIds) {
+                busMissingStopIds.add(missingStopId);
+            }
+
+            logImport(
+                `bus: merged ${busDatasetLabel}; cumulative unique stations=${busStationIds.size}, routes=${busRouteIds.size}, routeStops=${busRouteStopKeys.size}`,
+            );
+        }
     });
+
+    counts.bus = {
+        stations: busStationIds.size,
+        routes: busRouteIds.size,
+        routeStops: busRouteStopKeys.size,
+    };
+    warnings.bus = {
+        missingTripRefs: busMissingTripRefs,
+        missingStopRefs: busMissingStopIds.size,
+        sampleMissingStopIds: Array.from(busMissingStopIds).slice(0, 50),
+    };
+
+    logImport(`import complete in ${elapsedSeconds(importStartedAt)}s`);
 
     return {
         sourceDir,
         busDatasets: busDirs.length,
-        counts: {
-            subway: subway.counts,
-            bus: bus.counts,
-            lirr: lirr.counts,
-            mnr: mnr.counts,
-        },
-        warnings: {
-            subway: subway.warnings,
-            bus: bus.warnings,
-            lirr: lirr.warnings,
-            mnr: mnr.warnings,
-        },
+        counts,
+        warnings,
     };
 }
