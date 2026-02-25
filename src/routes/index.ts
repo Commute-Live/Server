@@ -11,6 +11,7 @@ import { registerDbAdmin } from "./db_admin.ts";
 import { registerMqttAdmin } from "./mqtt_admin.ts";
 import { registerSeptaAdmin } from "./septa_admin.ts";
 import { registerSeptaRoutes } from "./septa.ts";
+import { registerMtaRoutes } from "./mta.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
     registerRoot(app);
@@ -24,4 +25,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerMqttAdmin(app);
     registerSeptaAdmin(app, deps);
     registerSeptaRoutes(app, deps);
+    registerMtaRoutes(app, deps);
 }
