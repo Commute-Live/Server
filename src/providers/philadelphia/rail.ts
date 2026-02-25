@@ -2,8 +2,9 @@ import type { FetchContext, FetchResult, ProviderPlugin } from "../../types.ts";
 import { buildKey, parseKeySegments, registerProvider } from "../index.ts";
 import { resolveSeptaRailRouteAliases, resolveSeptaRailRouteId, resolveSeptaRailStopName } from "./stops_lookup.ts";
 import { logger } from "../../logger.ts";
+import { fillSeptaScheduledArrivals } from "./schedule_fill.ts";
 
-const SEPTA_BASE = "https://www3.septa.org/api";
+const SEPTA_ARRIVALS_URL = process.env.SEPTA_LIVE_RAIL_URL ?? "https://www3.septa.org/api/Arrivals/index.php";
 const CACHE_TTL_SECONDS = 20;
 const ARRIVALS_RESULTS_LIMIT = 30;
 const SEPTA_DEBUG_FETCH = process.env.SEPTA_DEBUG_FETCH === "1";
@@ -51,6 +52,20 @@ const parseLocalTimeToIso = (
     return new Date(asUtcLike + offsetMinutes * 60_000).toISOString();
 };
 
+const localDateParts = (timezone: string, nowMs: number) => {
+    const dtf = new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    });
+    const parts = dtf.formatToParts(new Date(nowMs));
+    const year = Number(parts.find((p) => p.type === "year")?.value ?? "0");
+    const month = Number(parts.find((p) => p.type === "month")?.value ?? "0");
+    const day = Number(parts.find((p) => p.type === "day")?.value ?? "0");
+    return { year, month, day };
+};
+
 const cleanStationLabel = (value?: string | null) => {
     if (!value) return "";
     return value.replace(/\s+Departures:\s*.*/i, "").trim();
@@ -82,13 +97,13 @@ const parseTimeToIso = (timeStr?: string | null, nowMs = Date.now()) => {
         const ampm = ampmRaw.toUpperCase();
         if (ampm === "PM" && hh !== 12) hh += 12;
         if (ampm === "AM" && hh === 12) hh = 0;
-        const now = new Date(nowMs);
+        const now = localDateParts("America/New_York", nowMs);
         let candidateMs = Date.parse(
             parseLocalTimeToIso(
                 "America/New_York",
-                now.getUTCFullYear(),
-                now.getUTCMonth() + 1,
-                now.getUTCDate(),
+                now.year,
+                now.month,
+                now.day,
                 hh,
                 mm,
                 0,
@@ -176,6 +191,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     if (!stationRaw.trim()) throw new Error("SEPTA station is required (use stop=<station name>)");
     const station = resolveSeptaRailStopName(stationRaw) ?? stationRaw;
     const direction = params.direction?.toUpperCase() === "S" ? "S" : params.direction?.toUpperCase() === "N" ? "N" : undefined;
+    const realtimeOnly = params.realtime_only === "1";
     const requestedLineRaw = normalizeLine(params.line);
     const requestedLineId = resolveSeptaRailRouteId(requestedLineRaw);
     const requestedLineAliases = resolveSeptaRailRouteAliases(requestedLineRaw);
@@ -200,7 +216,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     });
     if (direction) search.set("direction", direction);
 
-    const url = `${SEPTA_BASE}/Arrivals/index.php?${search.toString()}`;
+    const url = `${SEPTA_ARRIVALS_URL}?${search.toString()}`;
     const res = await fetch(url);
     if (!res.ok) {
         throw new Error(`SEPTA Arrivals error ${res.status} ${res.statusText}`);
@@ -232,9 +248,42 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
         }, "SEPTA rail fetch");
     }
 
-    const arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
+    let arrivals = direction === "S" ? pickArrivals(south, "S", ctx.now) : direction === "N" ? pickArrivals(north, "N", ctx.now) : pickArrivals([...north, ...south], undefined, ctx.now);
 
     const first = (direction === "S" ? south : direction === "N" ? north : [...north, ...south])[0];
+    const requestedOrResolvedLine =
+        requestedLineId ||
+        resolveSeptaRailRouteId(first?.line ?? "") ||
+        normalizeLine(first?.line) ||
+        "";
+    if (!realtimeOnly && arrivals.length < 3 && requestedOrResolvedLine) {
+        const fallback = await fillSeptaScheduledArrivals({
+            mode: "rail",
+            routeId: requestedOrResolvedLine,
+            stopInput: stationRaw,
+            direction,
+            nowMs: ctx.now,
+            limit: 3 - arrivals.length,
+        });
+        const seen = new Set(arrivals.map((a) => `${a.arrivalTime}:${a.destination ?? ""}`));
+        for (const row of fallback) {
+            const key = `${row.arrivalTime}:${row.destination ?? ""}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            arrivals.push({
+                arrivalTime: row.arrivalTime,
+                scheduledTime: row.scheduledTime,
+                delaySeconds: null,
+                destination: row.destination,
+                status: "SCHEDULED",
+                direction: row.direction === "S" ? "S" : "N",
+                line: row.line ?? requestedOrResolvedLine,
+            });
+            if (arrivals.length >= 3) break;
+        }
+        arrivals = arrivals.sort((a, b) => Date.parse(a.arrivalTime!) - Date.parse(b.arrivalTime!));
+    }
+
     const directionLabel =
         cleanDirectionLabel(first?.destination) ||
         cleanDirectionLabel(first?.next_station) ||
@@ -258,7 +307,7 @@ const fetchSeptaRailArrivals = async (key: string, ctx: FetchContext): Promise<F
     return {
         payload: {
             provider: "septa-rail",
-            line: requestedLineId || resolveSeptaRailRouteId(first?.line ?? "") || normalizeLine(first?.line) || "SEPTA",
+            line: requestedOrResolvedLine || "SEPTA",
             stop: stationLabel,
             stopId: stationRaw,
             stopName: stationLabel,

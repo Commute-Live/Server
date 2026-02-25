@@ -1,4 +1,15 @@
-import { jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+    boolean,
+    integer,
+    jsonb,
+    numeric,
+    pgTable,
+    primaryKey,
+    text,
+    timestamp,
+    uniqueIndex,
+    uuid,
+} from "drizzle-orm/pg-core";
 import type { DeviceConfig } from "../../types.ts";
 
 // Devices: physical hardware unit
@@ -65,4 +76,281 @@ export const authRefreshSessions = pgTable(
             table.tokenJti
         ),
     })
+);
+
+export type SeptaMode = "rail" | "bus" | "trolley";
+
+export const septaIngestRuns = pgTable("septa_ingest_runs", {
+    id: uuid("id").primaryKey().defaultRandom(),
+    status: text("status").notNull().default("running"),
+    startedAt: timestamp("started_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+    finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+    statsJson: jsonb("stats_json").$type<Record<string, unknown>>().notNull().default({}),
+    errorJson: jsonb("error_json").$type<Record<string, unknown> | null>(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaRoutes = pgTable(
+    "septa_routes",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        id: text("id").notNull(),
+        shortName: text("short_name").notNull().default(""),
+        longName: text("long_name").notNull().default(""),
+        displayName: text("display_name").notNull().default(""),
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.mode, table.id], name: "pk_septa_routes" }),
+    }),
+);
+
+export const septaStops = pgTable(
+    "septa_stops",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        id: text("id").notNull(),
+        name: text("name").notNull(),
+        normalizedName: text("normalized_name").notNull().default(""),
+        lat: numeric("lat"),
+        lon: numeric("lon"),
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({ columns: [table.mode, table.id], name: "pk_septa_stops" }),
+        normalizedNameIdx: uniqueIndex("idx_septa_stops_mode_name_id").on(
+            table.mode,
+            table.normalizedName,
+            table.id,
+        ),
+    }),
+);
+
+export const septaRouteStops = pgTable(
+    "septa_route_stops",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        routeId: text("route_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        direction: text("direction").notNull().default(""),
+        stopSequence: integer("stop_sequence"),
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.mode, table.routeId, table.stopId, table.direction],
+            name: "pk_septa_route_stops",
+        }),
+    }),
+);
+
+export const septaScheduledStopTimes = pgTable(
+    "septa_scheduled_stop_times",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        routeId: text("route_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        direction: text("direction").notNull().default(""),
+        tripId: text("trip_id").notNull(),
+        serviceId: text("service_id").notNull(),
+        headsign: text("headsign").notNull().default(""),
+        arrivalSeconds: integer("arrival_seconds").notNull(),
+        departureSeconds: integer("departure_seconds"),
+        stopSequence: integer("stop_sequence"),
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.mode, table.tripId, table.stopId, table.arrivalSeconds],
+            name: "pk_septa_scheduled_stop_times",
+        }),
+    }),
+);
+
+export const septaServiceDates = pgTable(
+    "septa_service_dates",
+    {
+        mode: text("mode").$type<SeptaMode>().notNull(),
+        serviceId: text("service_id").notNull(),
+        serviceDate: text("service_date").notNull(), // YYYYMMDD in America/New_York
+        active: boolean("active").notNull().default(true),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.mode, table.serviceId, table.serviceDate],
+            name: "pk_septa_service_dates",
+        }),
+    }),
+);
+
+export const septaRailStops = pgTable("septa_rail_stops", {
+    stopId: text("stop_id").primaryKey(),
+    stopName: text("stop_name").notNull(),
+    stopDesc: text("stop_desc"),
+    stopLat: numeric("stop_lat"),
+    stopLon: numeric("stop_lon"),
+    zoneId: text("zone_id"),
+    stopUrl: text("stop_url"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaRailRoutes = pgTable("septa_rail_routes", {
+    routeId: text("route_id").primaryKey(),
+    agencyId: text("agency_id"),
+    routeShortName: text("route_short_name").notNull().default(""),
+    routeLongName: text("route_long_name").notNull().default(""),
+    routeDesc: text("route_desc"),
+    routeType: integer("route_type").notNull(),
+    routeUrl: text("route_url"),
+    routeColor: text("route_color"),
+    routeTextColor: text("route_text_color"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaRailRouteStops = pgTable(
+    "septa_rail_route_stops",
+    {
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order").notNull(),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.routeId, table.directionId, table.stopId],
+            name: "pk_septa_rail_route_stops",
+        }),
+    }),
+);
+
+export const septaBusStops = pgTable("septa_bus_stops", {
+    stopId: text("stop_id").primaryKey(),
+    stopCode: text("stop_code"),
+    stopName: text("stop_name").notNull(),
+    stopDesc: text("stop_desc"),
+    stopLat: numeric("stop_lat"),
+    stopLon: numeric("stop_lon"),
+    zoneId: text("zone_id"),
+    stopUrl: text("stop_url"),
+    locationType: integer("location_type"),
+    parentStation: text("parent_station"),
+    stopTimezone: text("stop_timezone"),
+    wheelchairBoarding: integer("wheelchair_boarding"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaBusRoutes = pgTable("septa_bus_routes", {
+    routeId: text("route_id").primaryKey(),
+    agencyId: text("agency_id"),
+    routeShortName: text("route_short_name").notNull().default(""),
+    routeLongName: text("route_long_name").notNull().default(""),
+    routeDesc: text("route_desc"),
+    routeType: integer("route_type").notNull(),
+    routeUrl: text("route_url"),
+    routeColor: text("route_color"),
+    routeTextColor: text("route_text_color"),
+    networkId: text("network_id"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaBusRouteStops = pgTable(
+    "septa_bus_route_stops",
+    {
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order").notNull(),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.routeId, table.directionId, table.stopId],
+            name: "pk_septa_bus_route_stops",
+        }),
+    }),
+);
+
+export const septaTrolleyStops = pgTable("septa_trolley_stops", {
+    stopId: text("stop_id").primaryKey(),
+    stopCode: text("stop_code"),
+    stopName: text("stop_name").notNull(),
+    stopDesc: text("stop_desc"),
+    stopLat: numeric("stop_lat"),
+    stopLon: numeric("stop_lon"),
+    zoneId: text("zone_id"),
+    stopUrl: text("stop_url"),
+    locationType: integer("location_type"),
+    parentStation: text("parent_station"),
+    stopTimezone: text("stop_timezone"),
+    wheelchairBoarding: integer("wheelchair_boarding"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaTrolleyRoutes = pgTable("septa_trolley_routes", {
+    routeId: text("route_id").primaryKey(),
+    agencyId: text("agency_id"),
+    routeShortName: text("route_short_name").notNull().default(""),
+    routeLongName: text("route_long_name").notNull().default(""),
+    routeDesc: text("route_desc"),
+    routeType: integer("route_type").notNull(),
+    routeUrl: text("route_url"),
+    routeColor: text("route_color"),
+    routeTextColor: text("route_text_color"),
+    networkId: text("network_id"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const septaTrolleyRouteStops = pgTable(
+    "septa_trolley_route_stops",
+    {
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order").notNull(),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.routeId, table.directionId, table.stopId],
+            name: "pk_septa_trolley_route_stops",
+        }),
+    }),
 );
