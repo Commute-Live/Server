@@ -98,6 +98,71 @@ For staging, point the API service at a different env file:
 APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-staging up -d --build
 ```
 
+## API Routes
+
+### Auth
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/device/register` | Register a new device |
+| `POST` | `/user/register` | Register a new user |
+| `POST` | `/user/device/link` | Link a device to a user (auth required) |
+| `POST` | `/auth/login` | Login, receive access + refresh tokens |
+| `POST` | `/user/login` | Alias for `/auth/login` |
+| `POST` | `/auth/refresh` | Refresh access token |
+| `POST` | `/auth/logout` | Revoke refresh token |
+| `GET` | `/auth/me` | Get current user (auth required) |
+
+### Devices & Config
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/device/:device_id` | Get device by ID |
+| `GET` | `/device/:device_id/last-command` | Get latest MQTT command for device (auth required) |
+| `GET` | `/device/:deviceId/config` | Get device config (heartbeat endpoint) |
+| `POST` | `/device/:deviceId/config` | Update device config (auth required) |
+
+### Transit Data
+| Method | Path | Notes |
+|--------|------|-------|
+| `POST` | `/refresh/device/:deviceId` | Force-refresh transit data for a device (auth required) |
+| `POST` | `/refresh/key` | Force-refresh transit data for a cache key (auth required) |
+
+### Stops & Routes
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/stops` | List all stops |
+| `GET` | `/stops/:stopId/lines` | Get lines for a stop |
+| `GET` | `/providers/new-york/stops/subway` | Search NYC subway stops |
+| `GET` | `/providers/new-york/stops/bus` | Search NYC bus stops |
+| `GET` | `/providers/new-york/routes/bus` | List NYC bus routes |
+| `GET` | `/providers/chicago/stops/subway` | List Chicago subway stops |
+| `GET` | `/providers/chicago/stops/:stopId/lines` | Get lines for a Chicago stop |
+| `GET` | `/providers/chicago/routes/subway` | List Chicago subway routes |
+| `GET` | `/providers/boston/stops/subway` | List Boston subway stops |
+| `GET` | `/providers/boston/stops/bus` | List Boston bus stops |
+| `GET` | `/providers/philly/stops/rail` | List Philly rail stops |
+| `GET` | `/providers/philly/stops/train` | Alias for `/providers/philly/stops/rail` |
+| `GET` | `/providers/philly/stops/bus` | List Philly bus stops |
+| `GET` | `/providers/philly/stops/rail/:stopId/lines` | Get lines for a Philly rail stop |
+| `GET` | `/providers/philly/stops/train/:stopId/lines` | Alias for rail lines |
+| `GET` | `/providers/philly/stops/bus/:stopId/lines` | Get lines for a Philly bus stop |
+| `GET` | `/providers/philly/routes/rail` | List Philly rail routes |
+| `GET` | `/providers/philly/routes/train` | Alias for `/providers/philly/routes/rail` |
+| `GET` | `/providers/philly/routes/bus` | List Philly bus routes |
+| `GET` | `/providers/philly/debug/arrivals` | Debug arrivals data for Philly |
+
+### Admin
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/admin/db` | Database browser UI (basic auth) |
+| `GET` | `/admin/mqtt` | MQTT monitor UI (basic auth) |
+| `GET` | `/admin/mqtt/events` | Live MQTT event stream (SSE) |
+
+### System
+| Method | Path | Notes |
+|--------|------|-------|
+| `GET` | `/` | Root |
+| `GET` | `/health` | Health check |
+
 ## Useful Commands
 
 ```bash
