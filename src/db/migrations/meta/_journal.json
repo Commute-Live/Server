@@ -85,6 +85,13 @@
       "when": 1772100000000,
       "tag": "0011_septa_core_mode_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1772400000000,
+      "tag": "0012_mta_core_mode_tables",
+      "breakpoints": true
     }
   ]
 }
