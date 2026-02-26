@@ -1,8 +1,7 @@
 import type { Hono } from "hono";
 import type { dependency } from "../types/dependency.d.ts";
-import { listLinesForStop, listStops, listStopsForLine, resolveStopName } from "../gtfs/stops_lookup.ts";
+import { listLinesForStop, listStops, resolveStopName } from "../gtfs/stops_lookup.ts";
 import { listCtaSubwayLines, listCtaSubwayLinesForStop, listCtaSubwayStops } from "../gtfs/cta_subway_lookup.ts";
-import { listMtaBusRoutes, listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 export function registerStops(app: Hono, _deps: dependency) {
     type MbtaStop = {
@@ -47,53 +46,6 @@ export function registerStops(app: Hono, _deps: dependency) {
 
         const lines = await listLinesForStop(stopId);
         return c.json({ stopId, stop, lines });
-    });
-
-    // NYC subway stops scoped to route (line), for line-first station selection UX.
-    app.get("/providers/new-york/stops/subway", async (c) => {
-        const route = (c.req.query("route") ?? "").trim().toUpperCase();
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        if (!route) return c.json({ error: "route is required (e.g., A, 7, Q)" }, 400);
-
-        let stops = await listStopsForLine(route);
-        if (q.length > 0) {
-            stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
-        }
-        return c.json({ route, count: stops.length, stops: stops.slice(0, limit) });
-    });
-
-    app.get("/providers/new-york/stops/bus", async (c) => {
-        const route = (c.req.query("route") ?? "").trim().toUpperCase();
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        if (!route) return c.json({ error: "route is required (e.g., M15, Bx12, Q44)" }, 400);
-
-        try {
-            let stops = await listMtaBusStopsForRoute(route);
-            if (q.length > 0) {
-                stops = stops.filter((s) => s.stop.toLowerCase().includes(q) || s.stopId.toLowerCase().includes(q));
-            }
-            return c.json({ route, count: stops.length, stops: stops.slice(0, limit) });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Failed to fetch NYC bus stops";
-            return c.json({ error: message }, 500);
-        }
-    });
-
-    app.get("/providers/new-york/routes/bus", async (c) => {
-        const q = (c.req.query("q") ?? "").trim().toLowerCase();
-        const limit = parseLimit(c.req.query("limit"), 300, 1000);
-        try {
-            let routes = await listMtaBusRoutes();
-            if (q.length > 0) {
-                routes = routes.filter((r) => r.id.toLowerCase().includes(q) || r.label.toLowerCase().includes(q));
-            }
-            return c.json({ count: routes.length, routes: routes.slice(0, limit) });
-        } catch (err) {
-            const message = err instanceof Error ? err.message : "Failed to fetch NYC bus routes";
-            return c.json({ error: message }, 500);
-        }
     });
 
     app.get("/providers/chicago/stops/subway", (c) => {

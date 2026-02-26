@@ -3,6 +3,7 @@ import type { dependency } from "../types/dependency.d.ts";
 import { buildKey, providerRegistry } from "../providers/index.ts";
 import {
     getCoreStationById,
+    listCoreLinesByMode,
     listCoreLinesForStation,
     listCoreStations,
     normalizeCoreLineId,
@@ -108,6 +109,18 @@ export function registerMtaRoutes(app: Hono, deps: dependency) {
             mode,
             stopId: station.stopId,
             station: station.name,
+            lines,
+        });
+    });
+
+    app.get("/mta/stations/:mode/lines", async (c) => {
+        const mode = parseCoreMode(c.req.param("mode") ?? "");
+        if (!mode) return c.json({ error: "Invalid mode" }, 400);
+
+        const lines = await listCoreLinesByMode(deps.db, mode);
+        return c.json({
+            mode,
+            count: lines.length,
             lines,
         });
     });

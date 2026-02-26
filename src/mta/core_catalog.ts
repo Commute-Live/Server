@@ -367,3 +367,55 @@ export async function listCoreLinesForStation(db: DbLike, mode: CoreMode, stopId
         .limit(500);
     return dedupeLines(rows);
 }
+
+export async function listCoreLinesByMode(db: DbLike, mode: CoreMode): Promise<CoreLine[]> {
+    if (mode === "subway") {
+        const rows = await db
+            .select({
+                id: mtaSubwayRoutes.routeId,
+                shortName: mtaSubwayRoutes.routeShortName,
+                longName: mtaSubwayRoutes.routeLongName,
+            })
+            .from(mtaSubwayRoutes)
+            .orderBy(asc(mtaSubwayRoutes.routeId))
+            .limit(500);
+        return dedupeLines(rows);
+    }
+
+    if (mode === "bus") {
+        const rows = await db
+            .select({
+                id: mtaBusRoutes.routeId,
+                shortName: mtaBusRoutes.routeShortName,
+                longName: mtaBusRoutes.routeLongName,
+            })
+            .from(mtaBusRoutes)
+            .orderBy(asc(mtaBusRoutes.routeId))
+            .limit(1200);
+        return dedupeLines(rows);
+    }
+
+    if (mode === "lirr") {
+        const rows = await db
+            .select({
+                id: mtaLirrRoutes.routeId,
+                shortName: mtaLirrRoutes.routeShortName,
+                longName: mtaLirrRoutes.routeLongName,
+            })
+            .from(mtaLirrRoutes)
+            .orderBy(asc(mtaLirrRoutes.routeId))
+            .limit(500);
+        return dedupeLines(rows);
+    }
+
+    const rows = await db
+        .select({
+            id: mtaMnrRoutes.routeId,
+            shortName: mtaMnrRoutes.routeShortName,
+            longName: mtaMnrRoutes.routeLongName,
+        })
+        .from(mtaMnrRoutes)
+        .orderBy(asc(mtaMnrRoutes.routeId))
+        .limit(500);
+    return dedupeLines(rows);
+}
