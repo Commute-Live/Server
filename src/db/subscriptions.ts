@@ -6,6 +6,7 @@ const SUPPORTED_PROVIDERS = new Set([
     "mta-bus",
     "mbta",
     "cta-subway",
+    "cta-bus",
     "septa-rail",
     "septa-bus",
 ]);

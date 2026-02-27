@@ -544,3 +544,99 @@ export const mtaMnrRouteStops = pgTable(
         }),
     }),
 );
+
+export type CtaMode = "subway" | "bus";
+
+export const ctaSubwayStations = pgTable("cta_subway_stations", {
+    stopId: text("stop_id").primaryKey(),
+    stopName: text("stop_name").notNull(),
+    stopLat: numeric("stop_lat"),
+    stopLon: numeric("stop_lon"),
+    parentStation: text("parent_station"),
+    childStopIdsJson: jsonb("child_stop_ids_json").$type<string[]>().notNull().default([]),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const ctaSubwayRoutes = pgTable("cta_subway_routes", {
+    routeId: text("route_id").primaryKey(),
+    agencyId: text("agency_id"),
+    routeShortName: text("route_short_name").notNull().default(""),
+    routeLongName: text("route_long_name").notNull().default(""),
+    routeDesc: text("route_desc"),
+    routeType: integer("route_type").notNull(),
+    routeUrl: text("route_url"),
+    routeColor: text("route_color"),
+    routeTextColor: text("route_text_color"),
+    routeSortOrder: integer("route_sort_order"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const ctaSubwayRouteStops = pgTable(
+    "cta_subway_route_stops",
+    {
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.routeId, table.directionId, table.stopId],
+            name: "pk_cta_subway_route_stops",
+        }),
+    }),
+);
+
+export const ctaBusStations = pgTable("cta_bus_stations", {
+    stopId: text("stop_id").primaryKey(),
+    stopName: text("stop_name").notNull(),
+    stopLat: numeric("stop_lat"),
+    stopLon: numeric("stop_lon"),
+    parentStation: text("parent_station"),
+    childStopIdsJson: jsonb("child_stop_ids_json").$type<string[]>().notNull().default([]),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const ctaBusRoutes = pgTable("cta_bus_routes", {
+    routeId: text("route_id").primaryKey(),
+    agencyId: text("agency_id"),
+    routeShortName: text("route_short_name").notNull().default(""),
+    routeLongName: text("route_long_name").notNull().default(""),
+    routeDesc: text("route_desc"),
+    routeType: integer("route_type").notNull(),
+    routeUrl: text("route_url"),
+    routeColor: text("route_color"),
+    routeTextColor: text("route_text_color"),
+    routeSortOrder: integer("route_sort_order"),
+    importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+        .defaultNow()
+        .notNull(),
+});
+
+export const ctaBusRouteStops = pgTable(
+    "cta_bus_route_stops",
+    {
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.routeId, table.directionId, table.stopId],
+            name: "pk_cta_bus_route_stops",
+        }),
+    }),
+);
