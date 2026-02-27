@@ -132,6 +132,10 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/stops` | List all stops |
 | `GET` | `/stops/:stopId/lines` | Get lines for a stop |
 | `GET` | `/mta/stations/:mode/lines` | List all MTA lines for a mode |
+| `GET` | `/septa/stations` | List SEPTA stations/stops by mode (`rail`, `bus`, `trolley`) |
+| `GET` | `/septa/stations/:mode/lines` | List all SEPTA lines for a mode |
+| `GET` | `/septa/stations/:mode/:stopId/lines` | Get lines serving a SEPTA station/stop |
+| `GET` | `/septa/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
 | `GET` | `/mbta/stations` | List MBTA stations/stops by mode (`subway`, `bus`, `rail`, `ferry`) |
 | `GET` | `/mbta/stations/:mode/lines` | List all MBTA lines for a mode |
 | `GET` | `/mbta/stations/:mode/:stopId/lines` | Get lines serving an MBTA station/stop |
@@ -140,6 +144,10 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/cta/stations/:mode/lines` | List all CTA lines for a mode |
 | `GET` | `/cta/stations/:mode/:stopId/lines` | Get lines serving a CTA station/stop |
 | `GET` | `/cta/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
+| `GET` | `/bayarea/stations` | List Bay Area stations/stops by mode (`bus`, `tram`, `cableway`) and operator (`operator_id` required) |
+| `GET` | `/bayarea/stations/:mode/lines` | List all Bay Area lines for a mode and operator (`operator_id` required) |
+| `GET` | `/bayarea/stations/:mode/:stopId/lines` | Get lines serving a Bay Area station/stop (`operator_id` required) |
+| `GET` | `/bayarea/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) (`operator_id` required) |
 | `GET` | `/providers/philly/stops/rail` | List Philly rail stops |
 | `GET` | `/providers/philly/stops/train` | Alias for `/providers/philly/stops/rail` |
 | `GET` | `/providers/philly/stops/bus` | List Philly bus stops |
@@ -163,6 +171,24 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 |--------|------|-------|
 | `GET` | `/` | Root |
 | `GET` | `/health` | Health check |
+
+## Core GTFS Imports
+
+```bash
+bun run mta:import:core:local
+bun run cta:import:core:local
+bun run mbta:import:core:local
+bun run septa:import:core:local
+bun run bayarea:import:core:local
+```
+
+```bash
+./import-mta-core.sh
+./import-cta-core.sh
+./import-mbta-core.sh
+./import-septa-core.sh
+./import-bayarea-core.sh
+```
 
 ## Useful Commands
 
