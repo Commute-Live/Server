@@ -135,9 +135,10 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/providers/new-york/stops/subway` | Search NYC subway stops |
 | `GET` | `/providers/new-york/stops/bus` | Search NYC bus stops |
 | `GET` | `/providers/new-york/routes/bus` | List NYC bus routes |
-| `GET` | `/providers/chicago/stops/subway` | List Chicago subway stops |
-| `GET` | `/providers/chicago/stops/:stopId/lines` | Get lines for a Chicago stop |
-| `GET` | `/providers/chicago/routes/subway` | List Chicago subway routes |
+| `GET` | `/cta/stations` | List CTA stations/stops by mode (`subway` or `bus`) |
+| `GET` | `/cta/stations/:mode/lines` | List all CTA lines for a mode |
+| `GET` | `/cta/stations/:mode/:stopId/lines` | Get lines serving a CTA station/stop |
+| `GET` | `/cta/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
 | `GET` | `/providers/boston/stops/subway` | List Boston subway stops |
 | `GET` | `/providers/boston/stops/bus` | List Boston bus stops |
 | `GET` | `/providers/philly/stops/rail` | List Philly rail stops |
