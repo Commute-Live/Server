@@ -132,6 +132,10 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/stops` | List all stops |
 | `GET` | `/stops/:stopId/lines` | Get lines for a stop |
 | `GET` | `/mta/stations/:mode/lines` | List all MTA lines for a mode |
+| `GET` | `/septa/stations` | List SEPTA stations/stops by mode (`rail`, `bus`, `trolley`) |
+| `GET` | `/septa/stations/:mode/lines` | List all SEPTA lines for a mode |
+| `GET` | `/septa/stations/:mode/:stopId/lines` | Get lines serving a SEPTA station/stop |
+| `GET` | `/septa/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
 | `GET` | `/mbta/stations` | List MBTA stations/stops by mode (`subway`, `bus`, `rail`, `ferry`) |
 | `GET` | `/mbta/stations/:mode/lines` | List all MBTA lines for a mode |
 | `GET` | `/mbta/stations/:mode/:stopId/lines` | Get lines serving an MBTA station/stop |
