@@ -7,7 +7,7 @@ import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 import { loadtestGuard } from "../middleware/loadtest.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
-import { listCtaSubwayLinesForStop } from "../gtfs/cta_subway_lookup.ts";
+import { listCoreLinesForStation as listCtaLinesForStation, normalizeCoreLineId as normalizeCtaLineId } from "../cta/core_catalog.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
@@ -19,6 +19,7 @@ const SUPPORTED_PROVIDERS = new Set([
     "mta-bus",
     "mbta",
     "cta-subway",
+    "cta-bus",
     "septa-rail",
     "septa-bus",
 ]);
@@ -246,20 +247,20 @@ export function registerConfig(app: Hono, deps: dependency) {
                         }
                     }
 
-                    if (provider === "cta-subway" && line && stop) {
-                        const ctaStopLines =
-                            await listCtaSubwayLinesForStop(stop);
-                        const normalizedStopLines = ctaStopLines.map((v) =>
-                            v.trim().toUpperCase(),
-                        );
-                        if (!normalizedStopLines.includes(line)) {
+                    if ((provider === "cta-subway" || provider === "cta-bus") && line && stop) {
+                        const ctaMode = provider === "cta-subway" ? "subway" : "bus";
+                        const ctaStopLines = await listCtaLinesForStation(deps.db, ctaMode, stop);
+                        const normalizedLine = normalizeCtaLineId(ctaMode, line);
+                        const normalizedStopLines = ctaStopLines.map((v) => normalizeCtaLineId(ctaMode, v.id));
+                        if (!normalizedStopLines.includes(normalizedLine)) {
                             return c.json(
                                 {
-                                    error: `Invalid line+stop combination for Chicago subway: line ${line} does not serve stop ${stop}`,
+                                    error: `Invalid line+stop combination for Chicago ${ctaMode}: line ${line} does not serve stop ${stop}`,
                                 },
                                 400,
                             );
                         }
+                        row.line = normalizedLine;
                     }
                 }
             }
