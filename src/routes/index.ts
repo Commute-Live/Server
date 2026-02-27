@@ -14,6 +14,7 @@ import { registerSeptaRoutes } from "./septa.ts";
 import { registerMtaRoutes } from "./mta.ts";
 import { registerMbtaRoutes } from "./mbta.ts";
 import { registerCtaRoutes } from "./cta.ts";
+import { registerBayAreaRoutes } from "./bayarea.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
     registerRoot(app);
@@ -30,4 +31,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerMtaRoutes(app, deps);
     registerMbtaRoutes(app, deps);
     registerCtaRoutes(app, deps);
+    registerBayAreaRoutes(app, deps);
 }

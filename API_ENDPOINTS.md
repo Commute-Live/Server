@@ -25,3 +25,9 @@ Simple list of mode-based transit APIs.
 - `GET /septa/stations/:mode/lines`
 - `GET /septa/stations/:mode/:stopId/lines`
 - `GET /septa/stations/:mode/:stopId/arrivals?line_ids=<required>&direction=<optional>&limit_per_line=<optional>`
+
+## Bay Area
+- `GET /bayarea/stations?operator_id=<required>&mode=bus|tram|cableway&q=<optional>&limit=<optional>`
+- `GET /bayarea/stations/:mode/lines?operator_id=<required>`
+- `GET /bayarea/stations/:mode/:stopId/lines?operator_id=<required>`
+- `GET /bayarea/stations/:mode/:stopId/arrivals?operator_id=<required>&line_ids=<required>&direction=<optional>&limit_per_line=<optional>`

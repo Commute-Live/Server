@@ -834,3 +834,209 @@ export const mbtaFerryRouteStops = pgTable(
         }),
     }),
 );
+
+export type BayAreaMode = "bus" | "tram" | "cableway";
+
+export const bayareaBusStations = pgTable(
+    "bayarea_bus_stations",
+    {
+        operatorId: text("operator_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        stopName: text("stop_name").notNull(),
+        stopLat: numeric("stop_lat"),
+        stopLon: numeric("stop_lon"),
+        parentStation: text("parent_station"),
+        childStopIdsJson: jsonb("child_stop_ids_json").$type<string[]>().notNull().default([]),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.stopId],
+            name: "pk_bayarea_bus_stations",
+        }),
+    }),
+);
+
+export const bayareaBusRoutes = pgTable(
+    "bayarea_bus_routes",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        agencyId: text("agency_id"),
+        routeShortName: text("route_short_name").notNull().default(""),
+        routeLongName: text("route_long_name").notNull().default(""),
+        routeDesc: text("route_desc"),
+        routeType: integer("route_type").notNull(),
+        routeUrl: text("route_url"),
+        routeColor: text("route_color"),
+        routeTextColor: text("route_text_color"),
+        routeSortOrder: integer("route_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId],
+            name: "pk_bayarea_bus_routes",
+        }),
+    }),
+);
+
+export const bayareaBusRouteStops = pgTable(
+    "bayarea_bus_route_stops",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId, table.directionId, table.stopId],
+            name: "pk_bayarea_bus_route_stops",
+        }),
+    }),
+);
+
+export const bayareaTramStations = pgTable(
+    "bayarea_tram_stations",
+    {
+        operatorId: text("operator_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        stopName: text("stop_name").notNull(),
+        stopLat: numeric("stop_lat"),
+        stopLon: numeric("stop_lon"),
+        parentStation: text("parent_station"),
+        childStopIdsJson: jsonb("child_stop_ids_json").$type<string[]>().notNull().default([]),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.stopId],
+            name: "pk_bayarea_tram_stations",
+        }),
+    }),
+);
+
+export const bayareaTramRoutes = pgTable(
+    "bayarea_tram_routes",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        agencyId: text("agency_id"),
+        routeShortName: text("route_short_name").notNull().default(""),
+        routeLongName: text("route_long_name").notNull().default(""),
+        routeDesc: text("route_desc"),
+        routeType: integer("route_type").notNull(),
+        routeUrl: text("route_url"),
+        routeColor: text("route_color"),
+        routeTextColor: text("route_text_color"),
+        routeSortOrder: integer("route_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId],
+            name: "pk_bayarea_tram_routes",
+        }),
+    }),
+);
+
+export const bayareaTramRouteStops = pgTable(
+    "bayarea_tram_route_stops",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId, table.directionId, table.stopId],
+            name: "pk_bayarea_tram_route_stops",
+        }),
+    }),
+);
+
+export const bayareaCablewayStations = pgTable(
+    "bayarea_cableway_stations",
+    {
+        operatorId: text("operator_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        stopName: text("stop_name").notNull(),
+        stopLat: numeric("stop_lat"),
+        stopLon: numeric("stop_lon"),
+        parentStation: text("parent_station"),
+        childStopIdsJson: jsonb("child_stop_ids_json").$type<string[]>().notNull().default([]),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.stopId],
+            name: "pk_bayarea_cableway_stations",
+        }),
+    }),
+);
+
+export const bayareaCablewayRoutes = pgTable(
+    "bayarea_cableway_routes",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        agencyId: text("agency_id"),
+        routeShortName: text("route_short_name").notNull().default(""),
+        routeLongName: text("route_long_name").notNull().default(""),
+        routeDesc: text("route_desc"),
+        routeType: integer("route_type").notNull(),
+        routeUrl: text("route_url"),
+        routeColor: text("route_color"),
+        routeTextColor: text("route_text_color"),
+        routeSortOrder: integer("route_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId],
+            name: "pk_bayarea_cableway_routes",
+        }),
+    }),
+);
+
+export const bayareaCablewayRouteStops = pgTable(
+    "bayarea_cableway_route_stops",
+    {
+        operatorId: text("operator_id").notNull(),
+        routeId: text("route_id").notNull(),
+        directionId: integer("direction_id").notNull(),
+        stopId: text("stop_id").notNull(),
+        routeStopSortOrder: integer("route_stop_sort_order"),
+        importedAt: timestamp("imported_at", { withTimezone: true, mode: "string" })
+            .defaultNow()
+            .notNull(),
+    },
+    (table) => ({
+        pk: primaryKey({
+            columns: [table.operatorId, table.routeId, table.directionId, table.stopId],
+            name: "pk_bayarea_cableway_route_stops",
+        }),
+    }),
+);
