@@ -235,3 +235,42 @@ export async function listCoreLinesForStation(
         .limit(500);
     return dedupeLines(rows);
 }
+
+export async function listCoreLinesByMode(db: DbLike, mode: CoreMode): Promise<CoreLine[]> {
+    if (mode === "rail") {
+        const rows = await db
+            .select({
+                id: septaRailRoutes.routeId,
+                shortName: septaRailRoutes.routeShortName,
+                longName: septaRailRoutes.routeLongName,
+            })
+            .from(septaRailRoutes)
+            .orderBy(asc(septaRailRoutes.routeId))
+            .limit(500);
+        return dedupeLines(rows);
+    }
+
+    if (mode === "bus") {
+        const rows = await db
+            .select({
+                id: septaBusRoutes.routeId,
+                shortName: septaBusRoutes.routeShortName,
+                longName: septaBusRoutes.routeLongName,
+            })
+            .from(septaBusRoutes)
+            .orderBy(asc(septaBusRoutes.routeId))
+            .limit(1000);
+        return dedupeLines(rows);
+    }
+
+    const rows = await db
+        .select({
+            id: septaTrolleyRoutes.routeId,
+            shortName: septaTrolleyRoutes.routeShortName,
+            longName: septaTrolleyRoutes.routeLongName,
+        })
+        .from(septaTrolleyRoutes)
+        .orderBy(asc(septaTrolleyRoutes.routeId))
+        .limit(500);
+    return dedupeLines(rows);
+}
