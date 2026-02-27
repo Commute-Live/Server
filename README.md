@@ -131,6 +131,7 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 |--------|------|-------|
 | `GET` | `/stops` | List all stops |
 | `GET` | `/stops/:stopId/lines` | Get lines for a stop |
+| `GET` | `/septa/stations/:mode/lines` | List all SEPTA lines for a mode |
 | `GET` | `/providers/new-york/stops/subway` | Search NYC subway stops |
 | `GET` | `/providers/new-york/stops/bus` | Search NYC bus stops |
 | `GET` | `/providers/new-york/routes/bus` | List NYC bus routes |
