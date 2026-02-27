@@ -99,6 +99,13 @@
       "when": 1772490000000,
       "tag": "0013_cta_core_mode_tables",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1772580000000,
+      "tag": "0014_mbta_core_mode_tables",
+      "breakpoints": true
     }
   ]
 }

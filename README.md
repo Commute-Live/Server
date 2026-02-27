@@ -132,12 +132,14 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/stops` | List all stops |
 | `GET` | `/stops/:stopId/lines` | Get lines for a stop |
 | `GET` | `/mta/stations/:mode/lines` | List all MTA lines for a mode |
+| `GET` | `/mbta/stations` | List MBTA stations/stops by mode (`subway`, `bus`, `rail`, `ferry`) |
+| `GET` | `/mbta/stations/:mode/lines` | List all MBTA lines for a mode |
+| `GET` | `/mbta/stations/:mode/:stopId/lines` | Get lines serving an MBTA station/stop |
+| `GET` | `/mbta/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
 | `GET` | `/cta/stations` | List CTA stations/stops by mode (`subway` or `bus`) |
 | `GET` | `/cta/stations/:mode/lines` | List all CTA lines for a mode |
 | `GET` | `/cta/stations/:mode/:stopId/lines` | Get lines serving a CTA station/stop |
 | `GET` | `/cta/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
-| `GET` | `/providers/boston/stops/subway` | List Boston subway stops |
-| `GET` | `/providers/boston/stops/bus` | List Boston bus stops |
 | `GET` | `/providers/philly/stops/rail` | List Philly rail stops |
 | `GET` | `/providers/philly/stops/train` | Alias for `/providers/philly/stops/rail` |
 | `GET` | `/providers/philly/stops/bus` | List Philly bus stops |
