@@ -12,6 +12,7 @@ import { registerMqttAdmin } from "./mqtt_admin.ts";
 import { registerSeptaAdmin } from "./septa_admin.ts";
 import { registerSeptaRoutes } from "./septa.ts";
 import { registerMtaRoutes } from "./mta.ts";
+import { registerMbtaRoutes } from "./mbta.ts";
 import { registerCtaRoutes } from "./cta.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
@@ -27,5 +28,6 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerSeptaAdmin(app, deps);
     registerSeptaRoutes(app, deps);
     registerMtaRoutes(app, deps);
+    registerMbtaRoutes(app, deps);
     registerCtaRoutes(app, deps);
 }

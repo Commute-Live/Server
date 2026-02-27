@@ -10,6 +10,8 @@
         "septa:import:core:zip": "./import-septa-core.sh",
         "mta:import:core:local": "bun run src/scripts/mta_import_core_local.ts",
         "mta:import:core:zip": "./import-mta-core.sh",
+        "mbta:import:core:local": "bun run src/scripts/mbta_import_core_local.ts",
+        "mbta:import:core:zip": "./import-mbta-core.sh",
         "cta:import:core:local": "bun run src/scripts/cta_import_core_local.ts",
         "cta:import:core:zip": "./import-cta-core.sh",
         "db:generate": "drizzle-kit generate",

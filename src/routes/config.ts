@@ -8,6 +8,7 @@ import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 import { loadtestGuard } from "../middleware/loadtest.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
 import { listCoreLinesForStation as listCtaLinesForStation, normalizeCoreLineId as normalizeCtaLineId } from "../cta/core_catalog.ts";
+import { resolveCoreLineForStation as resolveMbtaLineForStation } from "../mbta/core_catalog.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
 const DEFAULT_BRIGHTNESS = 60;
@@ -203,8 +204,10 @@ export function registerConfig(app: Hono, deps: dependency) {
             if (Array.isArray(updates.lines) && updates.lines.length > 0) {
                 for (const row of updates.lines) {
                     const provider = (row.provider ?? "").trim().toLowerCase();
-                    const line = (row.line ?? "").trim().toUpperCase();
-                    const stop = (row.stop ?? "").trim().toUpperCase();
+                    const rawLine = (row.line ?? "").trim();
+                    const line = rawLine.toUpperCase();
+                    const rawStop = (row.stop ?? "").trim();
+                    const stop = rawStop.toUpperCase();
 
                     if (!SUPPORTED_PROVIDERS.has(provider)) {
                         return c.json(
@@ -245,6 +248,24 @@ export function registerConfig(app: Hono, deps: dependency) {
                                 400,
                             );
                         }
+                    }
+
+                    if (provider === "mbta" && rawLine && rawStop) {
+                        const match = await resolveMbtaLineForStation(
+                            deps.db,
+                            rawLine,
+                            rawStop,
+                        );
+                        if (!match) {
+                            return c.json(
+                                {
+                                    error: `Invalid line+stop combination for MBTA: line ${rawLine} does not serve stop ${rawStop}`,
+                                },
+                                400,
+                            );
+                        }
+                        row.line = match.line.id;
+                        row.stop = match.stopId;
                     }
 
                     if ((provider === "cta-subway" || provider === "cta-bus") && line && stop) {
