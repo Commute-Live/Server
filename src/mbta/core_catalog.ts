@@ -392,6 +392,125 @@ export async function listCoreLinesForStation(db: DbLike, mode: CoreMode, stopId
     return dedupeLines(rows);
 }
 
+export async function listCoreStationsForLine(db: DbLike, mode: CoreMode, lineId: string): Promise<CoreStation[]> {
+    const normalizedLineId = normalizeCoreLineId(mode, lineId);
+    if (!normalizedLineId) return [];
+
+    if (mode === "subway") {
+        const rows = await db
+            .select({
+                stopId: mbtaSubwayStations.stopId,
+                name: mbtaSubwayStations.stopName,
+                lat: mbtaSubwayStations.stopLat,
+                lon: mbtaSubwayStations.stopLon,
+                childStopIdsJson: mbtaSubwayStations.childStopIdsJson,
+            })
+            .from(mbtaSubwayRouteStops)
+            .innerJoin(mbtaSubwayStations, eq(mbtaSubwayStations.stopId, mbtaSubwayRouteStops.stopId))
+            .where(eq(mbtaSubwayRouteStops.routeId, normalizedLineId))
+            .orderBy(asc(mbtaSubwayStations.stopName))
+            .limit(2000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, {
+                stopId: row.stopId,
+                name: row.name,
+                lat: row.lat,
+                lon: row.lon,
+                childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+            });
+        }
+        return Array.from(stations.values());
+    }
+
+    if (mode === "bus") {
+        const rows = await db
+            .select({
+                stopId: mbtaBusStations.stopId,
+                name: mbtaBusStations.stopName,
+                lat: mbtaBusStations.stopLat,
+                lon: mbtaBusStations.stopLon,
+                childStopIdsJson: mbtaBusStations.childStopIdsJson,
+            })
+            .from(mbtaBusRouteStops)
+            .innerJoin(mbtaBusStations, eq(mbtaBusStations.stopId, mbtaBusRouteStops.stopId))
+            .where(eq(mbtaBusRouteStops.routeId, normalizedLineId))
+            .orderBy(asc(mbtaBusStations.stopName))
+            .limit(4000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, {
+                stopId: row.stopId,
+                name: row.name,
+                lat: row.lat,
+                lon: row.lon,
+                childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+            });
+        }
+        return Array.from(stations.values());
+    }
+
+    if (mode === "rail") {
+        const rows = await db
+            .select({
+                stopId: mbtaRailStations.stopId,
+                name: mbtaRailStations.stopName,
+                lat: mbtaRailStations.stopLat,
+                lon: mbtaRailStations.stopLon,
+                childStopIdsJson: mbtaRailStations.childStopIdsJson,
+            })
+            .from(mbtaRailRouteStops)
+            .innerJoin(mbtaRailStations, eq(mbtaRailStations.stopId, mbtaRailRouteStops.stopId))
+            .where(eq(mbtaRailRouteStops.routeId, normalizedLineId))
+            .orderBy(asc(mbtaRailStations.stopName))
+            .limit(2000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, {
+                stopId: row.stopId,
+                name: row.name,
+                lat: row.lat,
+                lon: row.lon,
+                childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+            });
+        }
+        return Array.from(stations.values());
+    }
+
+    const rows = await db
+        .select({
+            stopId: mbtaFerryStations.stopId,
+            name: mbtaFerryStations.stopName,
+            lat: mbtaFerryStations.stopLat,
+            lon: mbtaFerryStations.stopLon,
+            childStopIdsJson: mbtaFerryStations.childStopIdsJson,
+        })
+        .from(mbtaFerryRouteStops)
+        .innerJoin(mbtaFerryStations, eq(mbtaFerryStations.stopId, mbtaFerryRouteStops.stopId))
+        .where(eq(mbtaFerryRouteStops.routeId, normalizedLineId))
+        .orderBy(asc(mbtaFerryStations.stopName))
+        .limit(1000);
+
+    const stations = new Map<string, CoreStation>();
+    for (const row of rows) {
+        if (stations.has(row.stopId)) continue;
+        stations.set(row.stopId, {
+            stopId: row.stopId,
+            name: row.name,
+            lat: row.lat,
+            lon: row.lon,
+            childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+        });
+    }
+    return Array.from(stations.values());
+}
+
 export async function listCoreLinesByMode(db: DbLike, mode: CoreMode): Promise<CoreLine[]> {
     if (mode === "subway") {
         const rows = await db

@@ -5,6 +5,7 @@ import {
     getCoreStationById,
     listCoreLinesByMode,
     listCoreLinesForStation,
+    listCoreStationsForLine,
     listCoreStations,
     normalizeCoreLineId,
     parseCoreMode,
@@ -112,6 +113,33 @@ export function registerMbtaRoutes(app: Hono, deps: dependency) {
             stopId: station.stopId,
             station: station.name,
             lines,
+        });
+    });
+
+    app.get("/mbta/stations/:mode/:line/stopId", async (c) => {
+        const mode = parseCoreMode(c.req.param("mode") ?? "");
+        if (!mode) return c.json({ error: "Invalid mode" }, 400);
+
+        const requestedLine = (c.req.param("line") ?? "").trim();
+        if (!requestedLine) return c.json({ error: "line is required" }, 400);
+
+        const lines = await listCoreLinesByMode(deps.db, mode);
+        const matchedLine = lines.find((line) => lineKey(mode, line.id) === lineKey(mode, requestedLine));
+        if (!matchedLine) return c.json({ error: "Line not found" }, 404);
+
+        const stations = await listCoreStationsForLine(deps.db, mode, matchedLine.id);
+        return c.json({
+            mode,
+            lineId: matchedLine.id,
+            lineLabel: matchedLine.label,
+            count: stations.length,
+            stopIds: stations.map((station) => station.stopId),
+            stations: stations.map((station) => ({
+                stopId: station.stopId,
+                name: station.name,
+                lat: station.lat,
+                lon: station.lon,
+            })),
         });
     });
 
