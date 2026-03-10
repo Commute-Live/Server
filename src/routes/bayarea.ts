@@ -5,6 +5,7 @@ import {
     getCoreStationById,
     listCoreLinesByMode,
     listCoreLinesForStation,
+    listCoreStationsForLine,
     listCoreStations,
     normalizeCoreLineId,
     normalizeOperatorId,
@@ -137,6 +138,39 @@ export function registerBayAreaRoutes(app: Hono, deps: dependency) {
             stopId: station.stopId,
             station: station.name,
             lines,
+        });
+    });
+
+    app.get("/bayarea/stations/:mode/:line/stopId", async (c) => {
+        const operatorIdRaw = c.req.query("operator_id") ?? "";
+        const operatorId = normalizeOperatorId(operatorIdRaw);
+        if (!operatorId) return c.json({ error: "operator_id is required" }, 400);
+
+        const mode = parseCoreMode(c.req.param("mode") ?? "");
+        if (!mode) return c.json({ error: "Invalid mode" }, 400);
+
+        const requestedLine = (c.req.param("line") ?? "").trim();
+        if (!requestedLine) return c.json({ error: "line is required" }, 400);
+
+        const lines = await listCoreLinesByMode(deps.db, operatorId, mode);
+        const normalizedRequested = normalizeCoreLineId(mode, requestedLine);
+        const line = lines.find((entry) => normalizeCoreLineId(mode, entry.id) === normalizedRequested);
+        if (!line) return c.json({ error: "Line not found" }, 404);
+
+        const stations = await listCoreStationsForLine(deps.db, operatorId, mode, line.id);
+        return c.json({
+            operatorId,
+            mode,
+            lineId: line.id,
+            lineLabel: line.label,
+            count: stations.length,
+            stopIds: stations.map((station) => station.stopId),
+            stations: stations.map((station) => ({
+                stopId: station.stopId,
+                name: station.name,
+                lat: station.lat,
+                lon: station.lon,
+            })),
         });
     });
 

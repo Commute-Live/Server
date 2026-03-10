@@ -379,6 +379,141 @@ export async function listCoreLinesForStation(
     return dedupeLines(rows);
 }
 
+export async function listCoreStationsForLine(
+    db: DbLike,
+    operatorId: string,
+    mode: CoreMode,
+    lineId: string,
+): Promise<CoreStation[]> {
+    const normalizedOperatorId = normalizeOperatorId(operatorId);
+    const normalizedLineId = normalizeCoreLineId(mode, lineId);
+    if (!normalizedOperatorId || !normalizedLineId) return [];
+
+    if (mode === "bus") {
+        const rows = await db
+            .select({
+                operatorId: bayareaBusStations.operatorId,
+                stopId: bayareaBusStations.stopId,
+                name: bayareaBusStations.stopName,
+                lat: bayareaBusStations.stopLat,
+                lon: bayareaBusStations.stopLon,
+                childStopIdsJson: bayareaBusStations.childStopIdsJson,
+            })
+            .from(bayareaBusRouteStops)
+            .innerJoin(
+                bayareaBusStations,
+                and(
+                    eq(bayareaBusStations.operatorId, bayareaBusRouteStops.operatorId),
+                    eq(bayareaBusStations.stopId, bayareaBusRouteStops.stopId),
+                ),
+            )
+            .where(
+                and(
+                    eq(bayareaBusRouteStops.operatorId, normalizedOperatorId),
+                    eq(bayareaBusRouteStops.routeId, normalizedLineId),
+                ),
+            )
+            .orderBy(asc(bayareaBusStations.stopName), asc(bayareaBusStations.stopId))
+            .limit(4000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, {
+                operatorId: row.operatorId,
+                stopId: row.stopId,
+                name: row.name,
+                lat: row.lat,
+                lon: row.lon,
+                childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+            });
+        }
+        return Array.from(stations.values());
+    }
+
+    if (mode === "tram") {
+        const rows = await db
+            .select({
+                operatorId: bayareaTramStations.operatorId,
+                stopId: bayareaTramStations.stopId,
+                name: bayareaTramStations.stopName,
+                lat: bayareaTramStations.stopLat,
+                lon: bayareaTramStations.stopLon,
+                childStopIdsJson: bayareaTramStations.childStopIdsJson,
+            })
+            .from(bayareaTramRouteStops)
+            .innerJoin(
+                bayareaTramStations,
+                and(
+                    eq(bayareaTramStations.operatorId, bayareaTramRouteStops.operatorId),
+                    eq(bayareaTramStations.stopId, bayareaTramRouteStops.stopId),
+                ),
+            )
+            .where(
+                and(
+                    eq(bayareaTramRouteStops.operatorId, normalizedOperatorId),
+                    eq(bayareaTramRouteStops.routeId, normalizedLineId),
+                ),
+            )
+            .orderBy(asc(bayareaTramStations.stopName), asc(bayareaTramStations.stopId))
+            .limit(3000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, {
+                operatorId: row.operatorId,
+                stopId: row.stopId,
+                name: row.name,
+                lat: row.lat,
+                lon: row.lon,
+                childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+            });
+        }
+        return Array.from(stations.values());
+    }
+
+    const rows = await db
+        .select({
+            operatorId: bayareaCablewayStations.operatorId,
+            stopId: bayareaCablewayStations.stopId,
+            name: bayareaCablewayStations.stopName,
+            lat: bayareaCablewayStations.stopLat,
+            lon: bayareaCablewayStations.stopLon,
+            childStopIdsJson: bayareaCablewayStations.childStopIdsJson,
+        })
+        .from(bayareaCablewayRouteStops)
+        .innerJoin(
+            bayareaCablewayStations,
+            and(
+                eq(bayareaCablewayStations.operatorId, bayareaCablewayRouteStops.operatorId),
+                eq(bayareaCablewayStations.stopId, bayareaCablewayRouteStops.stopId),
+            ),
+        )
+        .where(
+            and(
+                eq(bayareaCablewayRouteStops.operatorId, normalizedOperatorId),
+                eq(bayareaCablewayRouteStops.routeId, normalizedLineId),
+            ),
+        )
+        .orderBy(asc(bayareaCablewayStations.stopName), asc(bayareaCablewayStations.stopId))
+        .limit(1000);
+
+    const stations = new Map<string, CoreStation>();
+    for (const row of rows) {
+        if (stations.has(row.stopId)) continue;
+        stations.set(row.stopId, {
+            operatorId: row.operatorId,
+            stopId: row.stopId,
+            name: row.name,
+            lat: row.lat,
+            lon: row.lon,
+            childStopIds: toChildStopIds(row.childStopIdsJson, row.stopId),
+        });
+    }
+    return Array.from(stations.values());
+}
+
 export async function listCoreLinesByMode(
     db: DbLike,
     operatorId: string,

@@ -236,6 +236,79 @@ export async function listCoreLinesForStation(
     return dedupeLines(rows);
 }
 
+export async function listCoreStationsForLine(
+    db: DbLike,
+    mode: CoreMode,
+    lineId: string,
+): Promise<CoreStation[]> {
+    const normalizedLineId = normalizeCoreLineId(mode, lineId);
+    if (!normalizedLineId) return [];
+
+    if (mode === "rail") {
+        const rows = await db
+            .select({
+                stopId: septaRailStops.stopId,
+                name: septaRailStops.stopName,
+                lat: septaRailStops.stopLat,
+                lon: septaRailStops.stopLon,
+            })
+            .from(septaRailRouteStops)
+            .innerJoin(septaRailStops, eq(septaRailStops.stopId, septaRailRouteStops.stopId))
+            .where(eq(septaRailRouteStops.routeId, normalizedLineId))
+            .orderBy(asc(septaRailStops.stopName))
+            .limit(2000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, row);
+        }
+        return Array.from(stations.values());
+    }
+
+    if (mode === "bus") {
+        const rows = await db
+            .select({
+                stopId: septaBusStops.stopId,
+                name: septaBusStops.stopName,
+                lat: septaBusStops.stopLat,
+                lon: septaBusStops.stopLon,
+            })
+            .from(septaBusRouteStops)
+            .innerJoin(septaBusStops, eq(septaBusStops.stopId, septaBusRouteStops.stopId))
+            .where(eq(septaBusRouteStops.routeId, normalizedLineId))
+            .orderBy(asc(septaBusStops.stopName))
+            .limit(4000);
+
+        const stations = new Map<string, CoreStation>();
+        for (const row of rows) {
+            if (stations.has(row.stopId)) continue;
+            stations.set(row.stopId, row);
+        }
+        return Array.from(stations.values());
+    }
+
+    const rows = await db
+        .select({
+            stopId: septaTrolleyStops.stopId,
+            name: septaTrolleyStops.stopName,
+            lat: septaTrolleyStops.stopLat,
+            lon: septaTrolleyStops.stopLon,
+        })
+        .from(septaTrolleyRouteStops)
+        .innerJoin(septaTrolleyStops, eq(septaTrolleyStops.stopId, septaTrolleyRouteStops.stopId))
+        .where(eq(septaTrolleyRouteStops.routeId, normalizedLineId))
+        .orderBy(asc(septaTrolleyStops.stopName))
+        .limit(2000);
+
+    const stations = new Map<string, CoreStation>();
+    for (const row of rows) {
+        if (stations.has(row.stopId)) continue;
+        stations.set(row.stopId, row);
+    }
+    return Array.from(stations.values());
+}
+
 export async function listCoreLinesByMode(db: DbLike, mode: CoreMode): Promise<CoreLine[]> {
     if (mode === "rail") {
         const rows = await db
