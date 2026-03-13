@@ -4,7 +4,6 @@ import { logger } from "../logger.ts";
 
 let client: MqttClient | null = null;
 let isConfigured = false;
-let debugSubscriptionsInstalled = false;
 let presenceHandler: ((deviceId: string, online: boolean) => void) | null = null;
 
 type MqttDebugDirection = "outgoing" | "incoming" | "state" | "error";
@@ -117,25 +116,22 @@ function getClient() {
         });
         metrics.increment("mqtt.connection.connect");
 
-        if (!debugSubscriptionsInstalled) {
-            debugSubscriptionsInstalled = true;
-            for (const topic of [...getDebugTopics(), "$SYS/#", "device/+/presence"]) {
-                client?.subscribe(topic, (err) => {
-                    if (err) {
-                        pushDebugEvent({
-                            direction: "error",
-                            topic,
-                            detail: `subscribe failed: ${err.message}`,
-                        });
-                        return;
-                    }
+        for (const topic of [...getDebugTopics(), "$SYS/#", "device/+/presence"]) {
+            client?.subscribe(topic, (err) => {
+                if (err) {
                     pushDebugEvent({
-                        direction: "state",
+                        direction: "error",
                         topic,
-                        detail: "subscribed",
+                        detail: `subscribe failed: ${err.message}`,
                     });
+                    return;
+                }
+                pushDebugEvent({
+                    direction: "state",
+                    topic,
+                    detail: "subscribed",
                 });
-            }
+            });
         }
     });
 
@@ -239,6 +235,18 @@ export async function publish(topic: string, payload: string) {
 
 export function subscribePresence(handler: (deviceId: string, online: boolean) => void) {
     presenceHandler = handler;
+}
+
+/**
+ * Eagerly initialize the MQTT connection so the server subscribes to
+ * device/+/presence immediately on startup — even when no devices are
+ * currently online. Without this, the client is only created on the first
+ * publish() call, which never happens when the active-device Redis keys have
+ * expired (e.g. after a long outage or vacation). Retained presence messages
+ * from reconnecting devices would then be silently dropped.
+ */
+export function initMqtt() {
+    getClient();
 }
 
 export function getRecentMqttDebugEvents(limit = 200) {
