@@ -1,4 +1,4 @@
-import { devices } from "./schema/schema.ts";
+import { displays } from "./schema/schema.ts";
 import type { DeviceConfig, LineConfig, Subscription } from "../types.ts";
 
 const SUPPORTED_PROVIDERS = new Set([
@@ -29,7 +29,9 @@ const isLineConfig = (value: unknown): value is LineConfig => {
 };
 
 export async function loadSubscriptionsFromDb(db: { select: Function }) {
-    const rows = await db.select({ id: devices.id, config: devices.config }).from(devices);
+    const rows = await db
+        .select({ deviceId: displays.deviceId, config: displays.config })
+        .from(displays);
 
     const subs: Subscription[] = [];
 
@@ -50,7 +52,7 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
             const scrolling = typeof line.scrolling === "boolean" ? line.scrolling : deviceScrolling;
 
             subs.push({
-                deviceId: row.id,
+                deviceId: row.deviceId,
                 provider,
                 type: "arrivals",
                 config: {

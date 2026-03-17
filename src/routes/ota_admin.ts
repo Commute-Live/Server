@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { desc } from "drizzle-orm";
 import type { dependency } from "../types/dependency.d.ts";
-import { devices, firmwareReleases } from "../db/schema/schema.ts";
+import { devices, displays, firmwareReleases } from "../db/schema/schema.ts";
 import { publish } from "../mqtt/mqtt.ts";
 import { getActiveDeviceIds } from "../cache.ts";
 import { logger } from "../logger.ts";
+import type { DeviceConfig } from "../types.ts";
 
 const escapeHtml = (value: unknown) =>
     String(value ?? "")
@@ -111,7 +112,7 @@ export function registerOtaAdmin(app: Hono, deps: dependency) {
         const host = c.req.header("host") ?? "localhost";
         const firmwareUrl = `https://${host}/firmware/v${version}/firmware.bin`;
 
-        let release: typeof firmwareReleases.$inferSelect;
+        let release: typeof firmwareReleases.$inferSelect | undefined;
         try {
             [release] = await deps.db
                 .insert(firmwareReleases)
@@ -124,6 +125,9 @@ export function registerOtaAdmin(app: Hono, deps: dependency) {
                     409,
                 );
             logger.error({ err }, "firmware DB insert failed");
+            return c.json({ error: "Failed to save firmware metadata" }, 500);
+        }
+        if (!release) {
             return c.json({ error: "Failed to save firmware metadata" }, 500);
         }
 
@@ -203,14 +207,48 @@ export function registerOtaAdmin(app: Hono, deps: dependency) {
             return c.text(auth.body);
         }
 
-        const [allDevices, releases] = await Promise.all([
-            deps.db.select({ id: devices.id, config: devices.config, lastActive: devices.lastActive, firmwareVersion: devices.firmwareVersion }).from(devices).orderBy(devices.id),
+        const [allDevices, allDisplays, releases] = await Promise.all([
+            deps.db
+                .select({
+                    id: devices.id,
+                    lastActive: devices.lastActive,
+                    firmwareVersion: devices.firmwareVersion,
+                })
+                .from(devices)
+                .orderBy(devices.id),
+            deps.db
+                .select({
+                    id: displays.id,
+                    deviceId: displays.deviceId,
+                    config: displays.config,
+                    createdAt: displays.createdAt,
+                })
+                .from(displays)
+                .orderBy(displays.deviceId, displays.createdAt),
             deps.db
                 .select()
                 .from(firmwareReleases)
                 .orderBy(desc(firmwareReleases.releasedAt)),
         ]);
         const activeIds = await getActiveDeviceIds(allDevices.map((d) => d.id));
+        const displaysByDevice = new Map<
+            string,
+            {
+                id: string;
+                config: DeviceConfig | null;
+                createdAt: string | Date;
+            }[]
+        >();
+
+        for (const display of allDisplays) {
+            const deviceDisplays = displaysByDevice.get(display.deviceId) ?? [];
+            deviceDisplays.push({
+                id: display.id,
+                config: (display.config as DeviceConfig | null | undefined) ?? null,
+                createdAt: display.createdAt,
+            });
+            displaysByDevice.set(display.deviceId, deviceDisplays);
+        }
 
         const releaseRows = releases.length
             ? releases
@@ -256,7 +294,9 @@ export function registerOtaAdmin(app: Hono, deps: dependency) {
                         : `<span class="badge badge-outdated">v${escapeHtml(device.firmwareVersion)}</span>`
                     : '<span class="badge badge-unknown">Unknown</span>';
 
-                const cfg = device.config ?? {};
+                const deviceDisplays = displaysByDevice.get(device.id) ?? [];
+                const primaryDisplay = deviceDisplays[0] ?? null;
+                const cfg = primaryDisplay?.config ?? {};
                 const rowId = `cfg-${idx}`;
 
                 type LineEntry = {
@@ -276,14 +316,27 @@ export function registerOtaAdmin(app: Hono, deps: dependency) {
                           .join("")
                     : `<span class="muted">No lines configured</span>`;
 
+                const displaySummary = deviceDisplays.length
+                    ? `<div class="cfg-lines-label">Displays (${deviceDisplays.length})</div>
+    <div class="cfg-lines">${deviceDisplays
+        .map(
+            (display, displayIdx) =>
+                `<div class="cfg-line"><span class="cfg-line-tag">${displayIdx === 0 ? "Primary" : "Extra"}</span><span class="cfg-line-stop">${escapeHtml(display.id)}</span><span class="cfg-line-dir">${escapeHtml(new Date(display.createdAt).toLocaleString())}</span></div>`,
+        )
+        .join("")}</div>`
+                    : `<div class="cfg-lines-label">Displays</div><div class="cfg-lines"><span class="muted">No displays configured</span></div>`;
+
                 const cfgPanel = `<tr id="${rowId}" class="cfg-row" style="display:none">
   <td colspan="6" class="cfg-cell">
     <div class="cfg-grid">
+      <div class="cfg-field"><span class="cfg-label">Primary Display ID</span><span class="cfg-val">${escapeHtml(primaryDisplay?.id ?? "—")}</span></div>
+      <div class="cfg-field"><span class="cfg-label">Display Count</span><span class="cfg-val">${escapeHtml(deviceDisplays.length || "0")}</span></div>
       <div class="cfg-field"><span class="cfg-label">Brightness</span><span class="cfg-val">${escapeHtml((cfg as { brightness?: number }).brightness ?? "—")}</span></div>
       <div class="cfg-field"><span class="cfg-label">Display Type</span><span class="cfg-val">${escapeHtml((cfg as { displayType?: number }).displayType ?? "—")}</span></div>
       <div class="cfg-field"><span class="cfg-label">Scrolling</span><span class="cfg-val">${escapeHtml(String((cfg as { scrolling?: boolean }).scrolling ?? "—"))}</span></div>
       <div class="cfg-field"><span class="cfg-label">Arrivals</span><span class="cfg-val">${escapeHtml((cfg as { arrivalsToDisplay?: number }).arrivalsToDisplay ?? "—")}</span></div>
     </div>
+    ${displaySummary}
     <div class="cfg-lines-label">Lines</div>
     <div class="cfg-lines">${linesHtml}</div>
   </td>

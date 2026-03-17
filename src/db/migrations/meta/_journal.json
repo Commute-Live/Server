@@ -127,6 +127,13 @@
       "when": 1773650001000,
       "tag": "0017_device_firmware_version",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1773763200000,
+      "tag": "0018_displays",
+      "breakpoints": true
     }
   ]
 }
