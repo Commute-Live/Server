@@ -212,7 +212,6 @@ Required environment:
 STAGING_DATABASE_URL=postgres://...
 PROD_DATABASE_URL=postgres://...
 TRANSIT_BACKUP_DIR=/home/your-user/transit-backups/commute-live
-TRANSIT_BACKUP_RETENTION_DAYS=7
 ```
 
 Promotion behavior:
@@ -220,6 +219,7 @@ Promotion behavior:
 - Dumps staging transit tables
 - Replaces prod transit tables inside a single transaction
 - Validates restored row counts before commit
+- Deletes the temporary prod backup after a successful commit
 - Rolls back automatically if restore or validation fails
 
 Run the nightly promotion:
@@ -247,5 +247,6 @@ Rollback from a saved prod snapshot:
 ```
 
 The scripts only touch transit tables, including the SEPTA, MTA, CTA, MBTA, and Bay Area datasets. App tables such as users, devices, auth sessions, and other non-transit data are left alone.
+Transit tables are selected dynamically by prefix families: `septa_*`, `mta_*`, `cta_*`, `mbta_*`, and `bayarea_*`.
 
 Great!

@@ -4,60 +4,12 @@ set -euo pipefail
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 PROD_ENV_FILE="${PROD_ENV_FILE:-prod.env}"
 
-TRANSIT_TABLES=(
-  septa_routes
-  septa_stops
-  septa_route_stops
-  septa_scheduled_stop_times
-  septa_service_dates
-  septa_rail_stops
-  septa_rail_routes
-  septa_rail_route_stops
-  septa_bus_stops
-  septa_bus_routes
-  septa_bus_route_stops
-  septa_trolley_stops
-  septa_trolley_routes
-  septa_trolley_route_stops
-  mta_subway_stations
-  mta_subway_routes
-  mta_subway_route_stops
-  mta_bus_stations
-  mta_bus_routes
-  mta_bus_route_stops
-  mta_lirr_stations
-  mta_lirr_routes
-  mta_lirr_route_stops
-  mta_mnr_stations
-  mta_mnr_routes
-  mta_mnr_route_stops
-  cta_subway_stations
-  cta_subway_routes
-  cta_subway_route_stops
-  cta_bus_stations
-  cta_bus_routes
-  cta_bus_route_stops
-  mbta_subway_stations
-  mbta_subway_routes
-  mbta_subway_route_stops
-  mbta_bus_stations
-  mbta_bus_routes
-  mbta_bus_route_stops
-  mbta_rail_stations
-  mbta_rail_routes
-  mbta_rail_route_stops
-  mbta_ferry_stations
-  mbta_ferry_routes
-  mbta_ferry_route_stops
-  bayarea_bus_stations
-  bayarea_bus_routes
-  bayarea_bus_route_stops
-  bayarea_tram_stations
-  bayarea_tram_routes
-  bayarea_tram_route_stops
-  bayarea_cableway_stations
-  bayarea_cableway_routes
-  bayarea_cableway_route_stops
+TRANSIT_TABLE_PATTERNS=(
+  'septa\_%'
+  'mta\_%'
+  'cta\_%'
+  'mbta\_%'
+  'bayarea\_%'
 )
 
 usage() {
@@ -74,6 +26,26 @@ EOF
 
 quote_sql_literal() {
   printf "%s" "$1" | sed "s/'/''/g"
+}
+
+build_table_query() {
+  local parts=()
+  local pattern
+  for pattern in "${TRANSIT_TABLE_PATTERNS[@]}"; do
+    parts+=("table_name LIKE '${pattern}' ESCAPE '\\'")
+  done
+
+  local where_clause
+  where_clause="$(printf '%s OR ' "${parts[@]}")"
+  where_clause="${where_clause% OR }"
+
+  cat <<EOF
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND (${where_clause})
+ORDER BY table_name
+EOF
 }
 
 log() {
@@ -134,15 +106,25 @@ fi
 
 WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/transit-restore-XXXXXX")"
 ROLLBACK_SQL="${WORK_DIR}/rollback.sql"
+PROD_TABLES_TXT="${WORK_DIR}/prod-tables.txt"
 
 cleanup() {
   rm -rf "${WORK_DIR}"
 }
 trap cleanup EXIT
 
+TABLE_QUERY="$(build_table_query)"
+psql --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
+mapfile -t PROD_TABLES < "${PROD_TABLES_TXT}"
+
+if [[ "${#PROD_TABLES[@]}" -eq 0 ]]; then
+  echo "ERROR: no transit tables found in prod for configured prefixes" >&2
+  exit 1
+fi
+
 LOCK_TABLES_SQL=()
 TRUNCATE_TABLES_SQL=()
-for table in "${TRANSIT_TABLES[@]}"; do
+for table in "${PROD_TABLES[@]}"; do
   LOCK_TABLES_SQL+=("public.${table}")
   TRUNCATE_TABLES_SQL+=("public.${table}")
 done
