@@ -9,60 +9,12 @@ DEFAULT_TRANSIT_BACKUP_DIR="${HOME:-${ROOT_DIR}}/transit-backups/commute-live"
 TRANSIT_BACKUP_DIR="${TRANSIT_BACKUP_DIR:-${DEFAULT_TRANSIT_BACKUP_DIR}}"
 DRY_RUN="${DRY_RUN:-0}"
 
-TRANSIT_TABLES=(
-  septa_routes
-  septa_stops
-  septa_route_stops
-  septa_scheduled_stop_times
-  septa_service_dates
-  septa_rail_stops
-  septa_rail_routes
-  septa_rail_route_stops
-  septa_bus_stops
-  septa_bus_routes
-  septa_bus_route_stops
-  septa_trolley_stops
-  septa_trolley_routes
-  septa_trolley_route_stops
-  mta_subway_stations
-  mta_subway_routes
-  mta_subway_route_stops
-  mta_bus_stations
-  mta_bus_routes
-  mta_bus_route_stops
-  mta_lirr_stations
-  mta_lirr_routes
-  mta_lirr_route_stops
-  mta_mnr_stations
-  mta_mnr_routes
-  mta_mnr_route_stops
-  cta_subway_stations
-  cta_subway_routes
-  cta_subway_route_stops
-  cta_bus_stations
-  cta_bus_routes
-  cta_bus_route_stops
-  mbta_subway_stations
-  mbta_subway_routes
-  mbta_subway_route_stops
-  mbta_bus_stations
-  mbta_bus_routes
-  mbta_bus_route_stops
-  mbta_rail_stations
-  mbta_rail_routes
-  mbta_rail_route_stops
-  mbta_ferry_stations
-  mbta_ferry_routes
-  mbta_ferry_route_stops
-  bayarea_bus_stations
-  bayarea_bus_routes
-  bayarea_bus_route_stops
-  bayarea_tram_stations
-  bayarea_tram_routes
-  bayarea_tram_route_stops
-  bayarea_cableway_stations
-  bayarea_cableway_routes
-  bayarea_cableway_route_stops
+TRANSIT_TABLE_PATTERNS=(
+  'septa\_%'
+  'mta\_%'
+  'cta\_%'
+  'mbta\_%'
+  'bayarea\_%'
 )
 
 usage() {
@@ -101,6 +53,26 @@ log() {
 
 quote_sql_literal() {
   printf "%s" "$1" | sed "s/'/''/g"
+}
+
+build_table_query() {
+  local parts=()
+  local pattern
+  for pattern in "${TRANSIT_TABLE_PATTERNS[@]}"; do
+    parts+=("table_name LIKE '${pattern}' ESCAPE '\\'")
+  done
+
+  local where_clause
+  where_clause="$(printf '%s OR ' "${parts[@]}")"
+  where_clause="${where_clause% OR }"
+
+  cat <<EOF
+SELECT table_name
+FROM information_schema.tables
+WHERE table_schema = 'public'
+  AND (${where_clause})
+ORDER BY table_name
+EOF
 }
 
 run_cmd() {
@@ -170,21 +142,64 @@ PROD_BACKUP_SQL="${BACKUP_DAY_DIR}/prod-transit-before-${TIMESTAMP_UTC}.sql"
 STAGING_EXPORT_SQL="${WORK_DIR}/staging-transit-${TIMESTAMP_UTC}.sql"
 EXPECTED_COUNTS_TSV="${WORK_DIR}/expected-counts-${TIMESTAMP_UTC}.tsv"
 PROMOTION_SQL="${WORK_DIR}/promote-${TIMESTAMP_UTC}.sql"
+STAGING_TABLES_TXT="${WORK_DIR}/staging-tables-${TIMESTAMP_UTC}.txt"
+PROD_TABLES_TXT="${WORK_DIR}/prod-tables-${TIMESTAMP_UTC}.txt"
 
 cleanup() {
   rm -rf "${WORK_DIR}"
 }
 trap cleanup EXIT
 
+TABLE_QUERY="$(build_table_query)"
+
+if [[ "${DRY_RUN}" == "1" ]]; then
+  printf '[dry-run] psql --dbname=%q -At -c %q > %q\n' \
+    "${STAGING_DATABASE_URL}" "${TABLE_QUERY}" "${STAGING_TABLES_TXT}" >&2
+  printf '[dry-run] psql --dbname=%q -At -c %q > %q\n' \
+    "${PROD_DATABASE_URL}" "${TABLE_QUERY}" "${PROD_TABLES_TXT}" >&2
+else
+  psql --dbname="${STAGING_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${STAGING_TABLES_TXT}"
+  psql --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
+fi
+
+if [[ "${DRY_RUN}" == "1" ]]; then
+  log "Dry run stops before dynamic table diff/restore generation."
+  exit 0
+fi
+
+mapfile -t STAGING_TABLES < "${STAGING_TABLES_TXT}"
+mapfile -t PROD_TABLES < "${PROD_TABLES_TXT}"
+
+if [[ "${#STAGING_TABLES[@]}" -eq 0 ]]; then
+  echo "ERROR: no transit tables found in staging for configured prefixes" >&2
+  exit 1
+fi
+
+if [[ "${#PROD_TABLES[@]}" -eq 0 ]]; then
+  echo "ERROR: no transit tables found in prod for configured prefixes" >&2
+  exit 1
+fi
+
+missing_tables=()
+for table in "${STAGING_TABLES[@]}"; do
+  if ! printf '%s\n' "${PROD_TABLES[@]}" | grep -Fxq "${table}"; then
+    missing_tables+=("${table}")
+  fi
+done
+
+if [[ "${#missing_tables[@]}" -gt 0 ]]; then
+  echo "ERROR: prod is missing transit tables that exist in staging:" >&2
+  printf '  %s\n' "${missing_tables[@]}" >&2
+  exit 1
+fi
+
 TABLE_ARGS=()
-SCHEMA_TABLES=()
 LOCK_TABLES_SQL=()
 TRUNCATE_TABLES_SQL=()
 COUNT_QUERY_PARTS=()
 
-for table in "${TRANSIT_TABLES[@]}"; do
+for table in "${STAGING_TABLES[@]}"; do
   TABLE_ARGS+=(--table "public.${table}")
-  SCHEMA_TABLES+=("public.${table}")
   LOCK_TABLES_SQL+=("public.${table}")
   TRUNCATE_TABLES_SQL+=("public.${table}")
   COUNT_QUERY_PARTS+=("SELECT '$(quote_sql_literal "${table}")' AS table_name, count(*)::bigint AS expected_count FROM public.${table}")
@@ -195,11 +210,7 @@ COUNT_QUERY="${COUNT_QUERY% UNION ALL }"
 LOCK_SQL="$(IFS=', '; echo "${LOCK_TABLES_SQL[*]}")"
 TRUNCATE_SQL="$(IFS=', '; echo "${TRUNCATE_TABLES_SQL[*]}")"
 
-if [[ "${DRY_RUN}" == "1" ]]; then
-  log "Dry run enabled. No files or database state will be changed."
-else
-  mkdir -p "${BACKUP_DAY_DIR}"
-fi
+mkdir -p "${BACKUP_DAY_DIR}"
 
 log "Backing up current prod transit tables to ${PROD_BACKUP_SQL}"
 run_cmd pg_dump \

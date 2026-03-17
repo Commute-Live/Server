@@ -247,5 +247,6 @@ Rollback from a saved prod snapshot:
 ```
 
 The scripts only touch transit tables, including the SEPTA, MTA, CTA, MBTA, and Bay Area datasets. App tables such as users, devices, auth sessions, and other non-transit data are left alone.
+Transit tables are selected dynamically by prefix families: `septa_*`, `mta_*`, `cta_*`, `mbta_*`, and `bayarea_*`.
 
 Great!
