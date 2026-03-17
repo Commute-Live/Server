@@ -17,6 +17,7 @@ echo "Merging '$CURRENT' into staging..."
 git fetch
 git checkout staging
 git pull origin staging
+git reset --hard origin/staging
 git merge "$CURRENT" --no-edit
 git push origin staging
 
