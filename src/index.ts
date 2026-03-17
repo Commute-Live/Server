@@ -6,7 +6,7 @@ import { startDb } from "./db/db.ts";
 import { registerRoutes } from "./routes/index.ts";
 import { startAggregatorEngine } from "./engine.ts";
 import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
-import { publish as mqttPublish, subscribePresence } from "./mqtt/mqtt.ts";
+import { publish as mqttPublish, subscribePresence, initMqtt } from "./mqtt/mqtt.ts";
 import { initCache } from "./cache.ts";
 import { logger } from "./logger.ts";
 
@@ -59,6 +59,11 @@ subscribePresence((deviceId, online) => {
     const action = online ? aggregator.markDeviceActive(deviceId) : aggregator.markDeviceInactive(deviceId);
     action.catch((err) => logger.error({ err, deviceId, online }, "presence update failed"));
 });
+
+// Eagerly open the MQTT connection so we receive retained device/+/presence
+// messages immediately, regardless of whether any devices are currently active.
+initMqtt();
+
 
 aggregator.ready
     .then(() => logger.info("aggregator ready"))

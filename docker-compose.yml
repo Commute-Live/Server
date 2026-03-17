@@ -6,9 +6,6 @@ services:
       com.datadoghq.tags.env: "${DD_ENV:-prod}"
       com.datadoghq.tags.service: "commutelive-postgres"
       com.datadoghq.tags.version: "16"
-      com.datadoghq.ad.check_names: '["postgres"]'
-      com.datadoghq.ad.init_configs: "[{}]"
-      com.datadoghq.ad.instances: '[{"host":"%%host%%","port":"5432","username":"datadog","password":"%%env_DD_PG_PASSWORD%%","dbname":"%%env_POSTGRES_DB%%","reported_hostname":"%%env_DD_PG_HOSTNAME%%","dbm":false}]'
     ports:
       - "${POSTGRES_PORT_BIND:-127.0.0.1:5432}:5432"
     environment:
@@ -18,12 +15,6 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init:/docker-entrypoint-initdb.d
-    command: >
-      postgres
-      -c shared_preload_libraries='pg_stat_statements'
-      -c pg_stat_statements.max=10000
-      -c pg_stat_statements.track=all
-      -c pg_stat_statements.track_utility=false
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 5s
@@ -132,6 +123,7 @@ services:
       - "${API_PORT_BIND:-8080}:8080"
     volumes:
       - /var/run/datadog:/var/run/datadog
+      - firmware_uploads:/app/uploads/firmware
     command: sh -c "bun run db:migrate && bun run src/index.ts"
     healthcheck:
       test:
@@ -182,9 +174,6 @@ services:
       DD_LOGS_ENABLED: "true"
       DD_LOGS_CONFIG_AUTO_MULTI_LINE_DETECTION: "true"
       DD_LOGS_CONFIG_CONTAINER_COLLECT_ALL: "true"
-      DD_PG_PASSWORD: ${DD_PG_PASSWORD}
-      DD_PG_HOSTNAME: ${DD_PG_HOSTNAME}
-      POSTGRES_DB: ${POSTGRES_DB}
       DD_CONTAINER_EXCLUDE_LOGS: "name:dd-agent"
       DD_HOST_PROC: /host/proc
     volumes:
@@ -201,3 +190,4 @@ volumes:
   redis_data:
   mosquitto_data:
   mosquitto_log:
+  firmware_uploads:

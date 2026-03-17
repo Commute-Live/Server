@@ -116,6 +116,8 @@ const normalizeConfig = (
 export function registerConfig(app: Hono, deps: dependency) {
     app.get("/device/:deviceId/config", loadtestGuard, async (c) => {
         const deviceId = c.req.param("deviceId");
+        const reportedFw = c.req.query("fw")?.trim() ?? null;
+
         const [device] = await deps.db
             .select({ config: devices.config })
             .from(devices)
@@ -124,6 +126,13 @@ export function registerConfig(app: Hono, deps: dependency) {
 
         if (!device) {
             return c.json({ error: "Device not found" }, 404);
+        }
+
+        if (reportedFw && /^\d+\.\d+\.\d+$/.test(reportedFw)) {
+            await deps.db
+                .update(devices)
+                .set({ firmwareVersion: reportedFw })
+                .where(eq(devices.id, deviceId));
         }
 
         const normalized = normalizeConfig(
