@@ -5,6 +5,7 @@ import {
     numeric,
     pgTable,
     primaryKey,
+    serial,
     text,
     timestamp,
     uniqueIndex,
@@ -17,6 +18,7 @@ export const devices = pgTable("devices", {
     id: text("id").primaryKey(),
     timezone: text("timezone").notNull().default("UTC"),
     config: jsonb("config").$type<DeviceConfig>().notNull().default({}),
+    firmwareVersion: text("firmware_version"),
     lastActive: timestamp("last_active", { withTimezone: true, mode: "string" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
@@ -76,6 +78,21 @@ export const authRefreshSessions = pgTable(
             table.tokenJti
         ),
     })
+);
+
+export const firmwareReleases = pgTable(
+    "firmware_releases",
+    {
+        id: serial("id").primaryKey(),
+        version: text("version").notNull(),
+        description: text("description").notNull().default(""),
+        url: text("url").notNull(),
+        sizeBytes: integer("size_bytes").notNull(),
+        releasedAt: timestamp("released_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+    },
+    (table) => ({
+        versionUnique: uniqueIndex("idx_firmware_releases_version").on(table.version),
+    }),
 );
 
 export type SeptaMode = "rail" | "bus" | "trolley";
@@ -1040,3 +1057,4 @@ export const bayareaCablewayRouteStops = pgTable(
         }),
     }),
 );
+
