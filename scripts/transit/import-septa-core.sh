@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GTFS_URL="${GTFS_URL:-https://www3.septa.org/developer/gtfs_public.zip}"
-ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 WORK_DIR="$(mktemp -d "/tmp/septa-core-import-XXXXXX")"
 
 cleanup() {
