@@ -7,7 +7,6 @@ DATE_UTC="$(date -u +"%Y-%m-%d")"
 PROD_ENV_FILE="${PROD_ENV_FILE:-prod.env}"
 DEFAULT_TRANSIT_BACKUP_DIR="${HOME:-${ROOT_DIR}}/transit-backups/commute-live"
 TRANSIT_BACKUP_DIR="${TRANSIT_BACKUP_DIR:-${DEFAULT_TRANSIT_BACKUP_DIR}}"
-TRANSIT_BACKUP_RETENTION_DAYS="${TRANSIT_BACKUP_RETENTION_DAYS:-7}"
 DRY_RUN="${DRY_RUN:-0}"
 
 TRANSIT_TABLES=(
@@ -77,14 +76,14 @@ Required env vars:
 Optional env vars:
   PROD_ENV_FILE
   TRANSIT_BACKUP_DIR
-  TRANSIT_BACKUP_RETENTION_DAYS
   DRY_RUN=1
 
 This script:
-  1. Dumps current prod transit tables to a timestamped backup file.
+  1. Dumps current prod transit tables to a temporary rollback file.
   2. Dumps staging transit tables plus expected row counts.
   3. Replaces prod transit tables inside a single transaction.
-  4. Rolls back automatically if restore or validation fails.
+  4. Deletes the temporary rollback file after a successful commit.
+  5. Rolls back automatically if restore or validation fails.
 EOF
 }
 
@@ -264,10 +263,9 @@ log "Applying staging transit data to prod inside a single transaction"
 run_cmd psql --dbname="${PROD_DATABASE_URL}" --file="${PROMOTION_SQL}"
 
 if [[ "${DRY_RUN}" != "1" ]]; then
-  log "Pruning backup files older than ${TRANSIT_BACKUP_RETENTION_DAYS} days from ${TRANSIT_BACKUP_DIR}"
-  find "${TRANSIT_BACKUP_DIR}" -type f -name 'prod-transit-before-*.sql' -mtime "+${TRANSIT_BACKUP_RETENTION_DAYS}" -delete
+  log "Promotion committed. Removing temporary rollback snapshot ${PROD_BACKUP_SQL}"
+  rm -f "${PROD_BACKUP_SQL}"
   find "${TRANSIT_BACKUP_DIR}" -type d -empty -delete
 fi
 
 log "Transit promotion complete."
-log "Prod rollback snapshot: ${PROD_BACKUP_SQL}"

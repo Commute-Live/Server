@@ -212,7 +212,6 @@ Required environment:
 STAGING_DATABASE_URL=postgres://...
 PROD_DATABASE_URL=postgres://...
 TRANSIT_BACKUP_DIR=/home/your-user/transit-backups/commute-live
-TRANSIT_BACKUP_RETENTION_DAYS=7
 ```
 
 Promotion behavior:
@@ -220,6 +219,7 @@ Promotion behavior:
 - Dumps staging transit tables
 - Replaces prod transit tables inside a single transaction
 - Validates restored row counts before commit
+- Deletes the temporary prod backup after a successful commit
 - Rolls back automatically if restore or validation fails
 
 Run the nightly promotion:
