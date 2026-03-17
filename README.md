@@ -211,7 +211,7 @@ Required environment:
 ```bash
 STAGING_DATABASE_URL=postgres://...
 PROD_DATABASE_URL=postgres://...
-TRANSIT_BACKUP_DIR=/var/backups/commute-live/transit
+TRANSIT_BACKUP_DIR=/home/your-user/transit-backups/commute-live
 TRANSIT_BACKUP_RETENTION_DAYS=7
 ```
 
@@ -243,7 +243,7 @@ Dry run:
 Rollback from a saved prod snapshot:
 
 ```bash
-./scripts/transit/restore-transit-backup.sh /var/backups/commute-live/transit/2026-03-17/prod-transit-before-20260317T020000Z.sql
+./scripts/transit/restore-transit-backup.sh /home/your-user/transit-backups/commute-live/2026-03-17/prod-transit-before-20260317T020000Z.sql
 ```
 
 The scripts only touch transit tables, including the SEPTA, MTA, CTA, MBTA, and Bay Area datasets. App tables such as users, devices, auth sessions, and other non-transit data are left alone.
