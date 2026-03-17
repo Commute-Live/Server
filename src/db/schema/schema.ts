@@ -1,5 +1,6 @@
 import {
     boolean,
+    index,
     integer,
     jsonb,
     numeric,
@@ -17,12 +18,28 @@ import type { DeviceConfig } from "../../types.ts";
 export const devices = pgTable("devices", {
     id: text("id").primaryKey(),
     timezone: text("timezone").notNull().default("UTC"),
-    config: jsonb("config").$type<DeviceConfig>().notNull().default({}),
     firmwareVersion: text("firmware_version"),
     lastActive: timestamp("last_active", { withTimezone: true, mode: "string" }),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
 });
+
+export const displays = pgTable(
+    "displays",
+    {
+        id: text("id").primaryKey(),
+        deviceId: text("device_id")
+            .notNull()
+            .references(() => devices.id, { onDelete: "cascade" }),
+        config: jsonb("config").$type<DeviceConfig>().notNull().default({}),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+    },
+    (table) => ({
+        deviceIdx: index("idx_displays_device_id").on(table.deviceId),
+        deviceCreatedIdx: index("idx_displays_device_created").on(table.deviceId, table.createdAt),
+    }),
+);
 
 // Users: accounts (devices are linked separately)
 export const users = pgTable(
