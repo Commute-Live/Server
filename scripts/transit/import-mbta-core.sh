@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GTFS_URL="${GTFS_URL:-https://cdn.mbta.com/MBTA_GTFS.zip}"
-ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 WORK_DIR="$(mktemp -d "/tmp/mbta-core-import-XXXXXX")"
 
 cleanup() {

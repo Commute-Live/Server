@@ -1,6 +1,7 @@
 .vscode
 node_modules
 .env
+prod.env
 app.env
 .env.staging
 .DS_Store
