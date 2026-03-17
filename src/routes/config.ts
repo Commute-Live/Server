@@ -1,117 +1,82 @@
 import type { Hono } from "hono";
 import { eq } from "drizzle-orm";
+
 import type { dependency } from "../types/dependency.d.ts";
 import { devices } from "../db/schema/schema.ts";
-import type { DeviceConfig, LineConfig } from "../types.ts";
+import type { DeviceConfig } from "../types.ts";
 import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 import { loadtestGuard } from "../middleware/loadtest.ts";
 import { listLinesForStop } from "../gtfs/stops_lookup.ts";
-import { listCoreLinesForStation as listCtaLinesForStation, normalizeCoreLineId as normalizeCtaLineId } from "../cta/core_catalog.ts";
+import {
+    extractDeviceConfigPatch,
+    normalizeDeviceConfig,
+    SUPPORTED_PROVIDERS,
+    validateLineConfigs,
+} from "../config/deviceConfig.ts";
+import {
+    listCoreLinesForStation as listCtaLinesForStation,
+    normalizeCoreLineId as normalizeCtaLineId,
+} from "../cta/core_catalog.ts";
 import { resolveCoreLineForStation as resolveMbtaLineForStation } from "../mbta/core_catalog.ts";
 import { listMtaBusStopsForRoute } from "../providers/new-york/bus_stops.ts";
 
-const DEFAULT_BRIGHTNESS = 60;
-const DEFAULT_DISPLAY_TYPE = 1;
-const DEFAULT_SCROLLING = false;
-const DEFAULT_ARRIVALS_TO_DISPLAY = 1;
-const SUPPORTED_PROVIDERS = new Set([
-    "mta-subway",
-    "mta-bus",
-    "mbta",
-    "cta-subway",
-    "cta-bus",
-    "septa-rail",
-    "septa-bus",
-]);
+async function validateLineReferences(deps: dependency, lines: DeviceConfig["lines"]) {
+    if (!Array.isArray(lines) || lines.length === 0) return null;
 
-const validateLines = (lines: unknown): lines is LineConfig[] => {
-    if (!Array.isArray(lines)) return false;
-    return lines.every((item) => {
-        if (!item || typeof item !== "object") return false;
-        const candidate = item as Record<string, unknown>;
-        if (typeof candidate.provider !== "string") return false;
-        if (typeof candidate.line !== "string") return false;
-        if (candidate.stop !== undefined && typeof candidate.stop !== "string")
-            return false;
-        if (
-            candidate.direction !== undefined &&
-            typeof candidate.direction !== "string"
-        )
-            return false;
-        if (
-            candidate.displayType !== undefined &&
-            typeof candidate.displayType !== "number"
-        )
-            return false;
-        if (
-            candidate.scrolling !== undefined &&
-            typeof candidate.scrolling !== "boolean"
-        )
-            return false;
-        return true;
-    });
-};
+    for (const row of lines) {
+        if (!row || typeof row !== "object") continue;
 
-const normalizeArrivalsToDisplay = (value: unknown) => {
-    if (typeof value !== "number" || Number.isNaN(value)) return DEFAULT_ARRIVALS_TO_DISPLAY;
-    if (value < 1) return 1;
-    if (value > 3) return 3;
-    return Math.trunc(value);
-};
+        const candidate = row as Record<string, unknown>;
+        const provider = typeof candidate.provider === "string" ? candidate.provider.trim().toLowerCase() : "";
+        const rawLine = typeof candidate.line === "string" ? candidate.line.trim() : "";
+        const line = rawLine.toUpperCase();
+        const rawStop = typeof candidate.stop === "string" ? candidate.stop.trim() : "";
+        const stop = rawStop.toUpperCase();
 
-const normalizeConfig = (
-    existing: DeviceConfig | null | undefined,
-    updates: Partial<DeviceConfig> = {},
-): DeviceConfig => {
-    const current = existing ?? {};
-    const brightness =
-        typeof updates.brightness === "number" &&
-        !Number.isNaN(updates.brightness)
-            ? updates.brightness
-            : typeof current.brightness === "number" &&
-                !Number.isNaN(current.brightness)
-              ? current.brightness
-              : DEFAULT_BRIGHTNESS;
+        if (!SUPPORTED_PROVIDERS.has(provider)) {
+            return `Unsupported provider '${provider}'. Supported providers: ${Array.from(SUPPORTED_PROVIDERS).join(", ")}`;
+        }
 
-    const lines = Array.isArray(updates.lines)
-        ? updates.lines
-        : Array.isArray(current.lines)
-          ? current.lines
-          : [];
+        if (provider === "mta-subway" && line && stop) {
+            const stopLines = await listLinesForStop(stop);
+            const normalizedStopLines = stopLines.map((value) => value.trim().toUpperCase());
+            if (!normalizedStopLines.includes(line)) {
+                return `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`;
+            }
+        }
 
-    const displayType =
-        typeof updates.displayType === "number" &&
-        !Number.isNaN(updates.displayType)
-            ? updates.displayType
-            : typeof current.displayType === "number" &&
-                !Number.isNaN(current.displayType)
-              ? current.displayType
-              : DEFAULT_DISPLAY_TYPE;
+        if (provider === "mta-bus" && line && stop) {
+            const busStops = await listMtaBusStopsForRoute(line);
+            const hasStop = busStops.some((item) => item.stopId.trim().toUpperCase() === stop);
+            if (!hasStop) {
+                return `Invalid line+stop combination for NYC bus: line ${line} does not serve stop ${stop}`;
+            }
+        }
 
-    const scrolling =
-        typeof updates.scrolling === "boolean"
-            ? updates.scrolling
-            : typeof current.scrolling === "boolean"
-              ? current.scrolling
-              : DEFAULT_SCROLLING;
-    const arrivalsToDisplay =
-        updates.arrivalsToDisplay !== undefined
-            ? normalizeArrivalsToDisplay(updates.arrivalsToDisplay)
-            : current.arrivalsToDisplay !== undefined
-              ? normalizeArrivalsToDisplay(current.arrivalsToDisplay)
-              : DEFAULT_ARRIVALS_TO_DISPLAY;
+        if (provider === "mbta" && rawLine && rawStop) {
+            const match = await resolveMbtaLineForStation(deps.db, rawLine, rawStop);
+            if (!match) {
+                return `Invalid line+stop combination for MBTA: line ${rawLine} does not serve stop ${rawStop}`;
+            }
+            candidate.line = match.line.id;
+            candidate.stop = match.stopId;
+        }
 
-    return {
-        ...current,
-        ...updates,
-        brightness,
-        lines,
-        displayType,
-        scrolling,
-        arrivalsToDisplay,
-    };
-};
+        if ((provider === "cta-subway" || provider === "cta-bus") && line && stop) {
+            const ctaMode = provider === "cta-subway" ? "subway" : "bus";
+            const ctaStopLines = await listCtaLinesForStation(deps.db, ctaMode, stop);
+            const normalizedLine = normalizeCtaLineId(ctaMode, line);
+            const normalizedStopLines = ctaStopLines.map((item) => normalizeCtaLineId(ctaMode, item.id));
+            if (!normalizedStopLines.includes(normalizedLine)) {
+                return `Invalid line+stop combination for Chicago ${ctaMode}: line ${line} does not serve stop ${stop}`;
+            }
+            candidate.line = normalizedLine;
+        }
+    }
+
+    return null;
+}
 
 export function registerConfig(app: Hono, deps: dependency) {
     app.get("/device/:deviceId/config", loadtestGuard, async (c) => {
@@ -126,9 +91,7 @@ export function registerConfig(app: Hono, deps: dependency) {
             return c.json({ error: "Device not found" }, 404);
         }
 
-        const normalized = normalizeConfig(
-            device.config as DeviceConfig | null | undefined,
-        );
+        const normalized = normalizeDeviceConfig(device.config as DeviceConfig | null | undefined);
         return c.json({ deviceId, config: normalized });
     });
 
@@ -140,149 +103,22 @@ export function registerConfig(app: Hono, deps: dependency) {
         async (c) => {
             const deviceId = c.req.param("deviceId");
             const body = await c.req.json().catch(() => null);
+            const updates = extractDeviceConfigPatch(body);
 
-            const updates: Partial<DeviceConfig> = {};
-
-            if (body && typeof body === "object") {
-                const maybeBrightness = (body as Record<string, unknown>)
-                    .brightness;
-                if (typeof maybeBrightness === "number") {
-                    updates.brightness = maybeBrightness;
-                } else if (
-                    typeof maybeBrightness === "string" &&
-                    maybeBrightness.trim() !== ""
-                ) {
-                    const parsed = Number(maybeBrightness);
-                    if (!Number.isNaN(parsed)) {
-                        updates.brightness = parsed;
-                    }
-                }
-
-                if ("displayType" in (body as Record<string, unknown>)) {
-                    const maybeDisplay = (body as Record<string, unknown>)
-                        .displayType;
-                    if (
-                        typeof maybeDisplay === "number" &&
-                        !Number.isNaN(maybeDisplay)
-                    ) {
-                        updates.displayType = maybeDisplay;
-                    }
-                }
-
-                if ("scrolling" in (body as Record<string, unknown>)) {
-                    const maybeScrolling = (body as Record<string, unknown>)
-                        .scrolling;
-                    if (typeof maybeScrolling === "boolean") {
-                        updates.scrolling = maybeScrolling;
-                    }
-                }
-
-                if ("arrivalsToDisplay" in (body as Record<string, unknown>)) {
-                    const maybeArrivalsToDisplay = (body as Record<string, unknown>).arrivalsToDisplay;
-                    if (typeof maybeArrivalsToDisplay === "number" && !Number.isNaN(maybeArrivalsToDisplay)) {
-                        updates.arrivalsToDisplay = normalizeArrivalsToDisplay(maybeArrivalsToDisplay);
-                    }
-                }
-
-                if ("lines" in (body as Record<string, unknown>)) {
-                    const proposed = (body as Record<string, unknown>).lines;
-                    if (proposed === undefined || proposed === null) {
-                        updates.lines = [];
-                    } else if (!validateLines(proposed)) {
-                        return c.json(
-                            {
-                                error: "lines must be an array of { provider, line, stop?, direction?, displayType?, scrolling? }",
-                            },
-                            400,
-                        );
-                    } else {
-                        updates.lines = proposed as LineConfig[];
-                    }
-                }
+            if (!updates) {
+                return c.json({ error: "Request body must be a JSON object" }, 400);
             }
 
-            if (Array.isArray(updates.lines) && updates.lines.length > 0) {
-                for (const row of updates.lines) {
-                    const provider = (row.provider ?? "").trim().toLowerCase();
-                    const rawLine = (row.line ?? "").trim();
-                    const line = rawLine.toUpperCase();
-                    const rawStop = (row.stop ?? "").trim();
-                    const stop = rawStop.toUpperCase();
-
-                    if (!SUPPORTED_PROVIDERS.has(provider)) {
-                        return c.json(
-                            {
-                                error: `Unsupported provider '${provider}'. Supported providers: ${Array.from(
-                                    SUPPORTED_PROVIDERS,
-                                ).join(", ")}`,
-                            },
-                            400,
-                        );
-                    }
-
-                    if (provider === "mta-subway" && line && stop) {
-                        const stopLines = await listLinesForStop(stop);
-                        const normalizedStopLines = stopLines.map((v) =>
-                            v.trim().toUpperCase(),
-                        );
-                        if (!normalizedStopLines.includes(line)) {
-                            return c.json(
-                                {
-                                    error: `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`,
-                                },
-                                400,
-                            );
-                        }
-                    }
-
-                    if (provider === "mta-bus" && line && stop) {
-                        const busStops = await listMtaBusStopsForRoute(line);
-                        const hasStop = busStops.some(
-                            (s) => s.stopId.trim().toUpperCase() === stop,
-                        );
-                        if (!hasStop) {
-                            return c.json(
-                                {
-                                    error: `Invalid line+stop combination for NYC bus: line ${line} does not serve stop ${stop}`,
-                                },
-                                400,
-                            );
-                        }
-                    }
-
-                    if (provider === "mbta" && rawLine && rawStop) {
-                        const match = await resolveMbtaLineForStation(
-                            deps.db,
-                            rawLine,
-                            rawStop,
-                        );
-                        if (!match) {
-                            return c.json(
-                                {
-                                    error: `Invalid line+stop combination for MBTA: line ${rawLine} does not serve stop ${rawStop}`,
-                                },
-                                400,
-                            );
-                        }
-                        row.line = match.line.id;
-                        row.stop = match.stopId;
-                    }
-
-                    if ((provider === "cta-subway" || provider === "cta-bus") && line && stop) {
-                        const ctaMode = provider === "cta-subway" ? "subway" : "bus";
-                        const ctaStopLines = await listCtaLinesForStation(deps.db, ctaMode, stop);
-                        const normalizedLine = normalizeCtaLineId(ctaMode, line);
-                        const normalizedStopLines = ctaStopLines.map((v) => normalizeCtaLineId(ctaMode, v.id));
-                        if (!normalizedStopLines.includes(normalizedLine)) {
-                            return c.json(
-                                {
-                                    error: `Invalid line+stop combination for Chicago ${ctaMode}: line ${line} does not serve stop ${stop}`,
-                                },
-                                400,
-                            );
-                        }
-                        row.line = normalizedLine;
-                    }
+            if (Object.prototype.hasOwnProperty.call(updates, "lines")) {
+                if (updates.lines === null || updates.lines === undefined) {
+                    updates.lines = [];
+                } else if (!validateLineConfigs(updates.lines)) {
+                    return c.json(
+                        {
+                            error: "lines must be an array of { provider, line, stop?, direction?, displayType?, scrolling? }",
+                        },
+                        400,
+                    );
                 }
             }
 
@@ -296,10 +132,20 @@ export function registerConfig(app: Hono, deps: dependency) {
                 return c.json({ error: "Device not found" }, 404);
             }
 
-            const nextConfig = normalizeConfig(
+            const nextConfig = normalizeDeviceConfig(
                 device.config as DeviceConfig | null | undefined,
                 updates,
             );
+
+            if (Object.prototype.hasOwnProperty.call(updates, "lines")) {
+                const lineValidationError = await validateLineReferences(
+                    deps,
+                    nextConfig.lines ?? [],
+                );
+                if (lineValidationError) {
+                    return c.json({ error: lineValidationError }, 400);
+                }
+            }
 
             const [updated] = await deps.db
                 .update(devices)
@@ -310,7 +156,8 @@ export function registerConfig(app: Hono, deps: dependency) {
             await deps.aggregator.reloadSubscriptions();
             await deps.aggregator.refreshDevice(deviceId);
 
-            return c.json({ deviceId, config: updated?.config ?? nextConfig });
+            const persistedConfig = (updated?.config ?? nextConfig) as DeviceConfig | null | undefined;
+            return c.json({ deviceId, config: normalizeDeviceConfig(persistedConfig) });
         },
     );
 }

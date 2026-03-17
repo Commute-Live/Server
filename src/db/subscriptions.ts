@@ -1,32 +1,6 @@
 import { devices } from "./schema/schema.ts";
-import type { DeviceConfig, LineConfig, Subscription } from "../types.ts";
-
-const SUPPORTED_PROVIDERS = new Set([
-    "mta-subway",
-    "mta-bus",
-    "mbta",
-    "cta-subway",
-    "cta-bus",
-    "septa-rail",
-    "septa-bus",
-]);
-
-const clampArrivalsToDisplay = (value: unknown) => {
-    if (typeof value !== "number" || Number.isNaN(value)) return 1;
-    if (value < 1) return 1;
-    if (value > 3) return 3;
-    return Math.trunc(value);
-};
-
-const isLineConfig = (value: unknown): value is LineConfig => {
-    if (!value || typeof value !== "object") return false;
-    const v = value as LineConfig;
-    if (typeof v.provider !== "string") return false;
-    if (typeof v.line !== "string") return false;
-    if (v.stop !== undefined && typeof v.stop !== "string") return false;
-    if (v.direction !== undefined && typeof v.direction !== "string") return false;
-    return true;
-};
+import type { DeviceConfig, Subscription } from "../types.ts";
+import { normalizeDeviceConfig, SUPPORTED_PROVIDERS } from "../config/deviceConfig.ts";
 
 export async function loadSubscriptionsFromDb(db: { select: Function }) {
     const rows = await db.select({ id: devices.id, config: devices.config }).from(devices);
@@ -34,11 +8,12 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
     const subs: Subscription[] = [];
 
     for (const row of rows) {
-        const cfg = (row.config ?? {}) as DeviceConfig;
-        const lines = Array.isArray(cfg.lines) ? cfg.lines.filter(isLineConfig) : [];
+        const cfg = normalizeDeviceConfig(row.config as DeviceConfig | null | undefined);
+        const lines = Array.isArray(cfg.lines) ? cfg.lines : [];
         const deviceDisplayType = typeof cfg.displayType === "number" ? cfg.displayType : 1;
         const deviceScrolling = typeof cfg.scrolling === "boolean" ? cfg.scrolling : false;
-        const deviceArrivalsToDisplay = clampArrivalsToDisplay(cfg.arrivalsToDisplay);
+        const deviceArrivalsToDisplay =
+            typeof cfg.arrivalsToDisplay === "number" ? cfg.arrivalsToDisplay : 1;
 
         for (const line of lines) {
             // Require minimal fields; skip malformed entries

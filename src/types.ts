@@ -15,6 +15,7 @@ export type LineConfig = {
     direction?: string;
     displayType?: number;
     scrolling?: boolean;
+    [key: string]: unknown;
 };
 
 export type DeviceConfig = {
@@ -23,6 +24,7 @@ export type DeviceConfig = {
     scrolling?: boolean;
     arrivalsToDisplay?: number;
     lines?: LineConfig[];
+    [key: string]: unknown;
 };
 
 export type CacheEntry = {
