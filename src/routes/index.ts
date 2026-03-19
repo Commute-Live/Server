@@ -15,6 +15,7 @@ import { registerMtaRoutes } from "./mta.ts";
 import { registerMbtaRoutes } from "./mbta.ts";
 import { registerCtaRoutes } from "./cta.ts";
 import { registerBayAreaRoutes } from "./bayarea.ts";
+import { registerNjtRoutes } from "./njt.ts";
 import { registerOtaAdmin } from "./ota_admin.ts";
 
 export function registerRoutes(app: Hono, deps: dependency) {
@@ -34,4 +35,5 @@ export function registerRoutes(app: Hono, deps: dependency) {
     registerMbtaRoutes(app, deps);
     registerCtaRoutes(app, deps);
     registerBayAreaRoutes(app, deps);
+    registerNjtRoutes(app, deps);
 }
