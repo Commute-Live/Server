@@ -6,7 +6,17 @@ export type Subscription = {
     displayType?: number;
     scrolling?: boolean;
     arrivalsToDisplay?: number;
+    lineConfig?: LineConfig;
 };
+
+export type DisplayWeekday =
+    | "sun"
+    | "mon"
+    | "tue"
+    | "wed"
+    | "thu"
+    | "fri"
+    | "sat";
 
 export type LineConfig = {
     provider: string;
@@ -15,6 +25,15 @@ export type LineConfig = {
     direction?: string;
     displayType?: number;
     scrolling?: boolean;
+    label?: string;
+    secondaryLabel?: string;
+    topText?: string;
+    bottomText?: string;
+    textColor?: string;
+    nextStops?: number;
+    displayFormat?: string;
+    primaryContent?: string;
+    secondaryContent?: string;
 };
 
 export type DeviceConfig = {
@@ -23,6 +42,21 @@ export type DeviceConfig = {
     scrolling?: boolean;
     arrivalsToDisplay?: number;
     lines?: LineConfig[];
+};
+
+export type DeviceDisplay = {
+    displayId: string;
+    deviceId: string;
+    name: string;
+    paused: boolean;
+    priority: number;
+    sortOrder: number;
+    scheduleStart: string | null;
+    scheduleEnd: string | null;
+    scheduleDays: DisplayWeekday[];
+    config: DeviceConfig;
+    createdAt: string;
+    updatedAt: string;
 };
 
 export type CacheEntry = {

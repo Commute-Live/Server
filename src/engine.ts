@@ -1,5 +1,11 @@
 import { cacheMap, getCacheEntry, loadActiveDeviceIds, markDeviceActiveInCache, markDeviceInactiveInCache, markExpired, setCacheEntry } from "./cache.ts";
-import type { AggregatorEngine, FanoutMap, ProviderPlugin, Subscription } from "./types.ts";
+import type {
+    AggregatorEngine,
+    FanoutMap,
+    LineConfig,
+    ProviderPlugin,
+    Subscription,
+} from "./types.ts";
 import { providerRegistry, parseKeySegments } from "./providers/index.ts";
 import { resolveStopName } from "./gtfs/stops_lookup.ts";
 import { resolveDirectionLabel } from "./transit/direction_label.ts";
@@ -21,6 +27,18 @@ type DeviceOptions = {
     arrivalsToDisplay: number;
 };
 
+type DeviceLineOverrides = {
+    label?: string;
+    secondaryLabel?: string;
+    topText?: string;
+    bottomText?: string;
+    textColor?: string;
+    nextStops?: number;
+    displayFormat?: string;
+    primaryContent?: string;
+    secondaryContent?: string;
+};
+
 const defaultPublish = (topic: string, payload: unknown) => {
     logger.debug({ topic, payload }, "publish");
 };
@@ -38,6 +56,7 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
     const fanout: FanoutMap = new Map();
     const deviceToKeys = new Map<string, Set<string>>();
     const deviceOptions = new Map<string, DeviceOptions>();
+    const deviceLineOverrides = new Map<string, Map<string, DeviceLineOverrides>>();
 
     for (const sub of subs) {
         const provider = providers.get(sub.provider);
@@ -60,6 +79,24 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
         }
         deviceToKeys.get(sub.deviceId)!.add(key);
 
+        if (sub.lineConfig) {
+            if (!deviceLineOverrides.has(sub.deviceId)) {
+                deviceLineOverrides.set(sub.deviceId, new Map());
+            }
+            const lineConfig = sub.lineConfig as LineConfig;
+            deviceLineOverrides.get(sub.deviceId)!.set(key, {
+                label: lineConfig.label,
+                secondaryLabel: lineConfig.secondaryLabel,
+                topText: lineConfig.topText,
+                bottomText: lineConfig.bottomText,
+                textColor: lineConfig.textColor,
+                nextStops: lineConfig.nextStops,
+                displayFormat: lineConfig.displayFormat,
+                primaryContent: lineConfig.primaryContent,
+                secondaryContent: lineConfig.secondaryContent,
+            });
+        }
+
         if (!deviceOptions.has(sub.deviceId)) {
             deviceOptions.set(sub.deviceId, {
                 displayType: typeof sub.displayType === "number" ? sub.displayType : 1,
@@ -69,7 +106,7 @@ const buildFanoutMaps = (subs: Subscription[], providers: Map<string, ProviderPl
         }
     }
 
-    return { fanout, deviceToKeys, deviceOptions };
+    return { fanout, deviceToKeys, deviceOptions, deviceLineOverrides };
 };
 
 const extractNextArrivals = (payload: unknown) => {
@@ -171,9 +208,22 @@ type DeviceLinePayload = {
     nextArrivals: Array<{ delaySeconds?: number; destination?: string; status?: string; direction?: string; line?: string; eta?: string }>;
     destination?: string;
     eta?: string;
+    label?: string;
+    secondaryLabel?: string;
+    topText?: string;
+    bottomText?: string;
+    textColor?: string;
+    nextStops?: number;
+    displayFormat?: string;
+    primaryContent?: string;
+    secondaryContent?: string;
 };
 
-const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayload => {
+const buildDeviceLinePayload = (
+    key: string,
+    payload: unknown,
+    overrides?: DeviceLineOverrides,
+): DeviceLinePayload => {
     const { providerId, params } = parseKeySegments(key);
     const body = payload && typeof payload === "object" ? (payload as Record<string, unknown>) : {};
 
@@ -231,16 +281,33 @@ const buildDeviceLinePayload = (key: string, payload: unknown): DeviceLinePayloa
                 : undefined,
         ),
         eta,
+        label: overrides?.label,
+        secondaryLabel: overrides?.secondaryLabel,
+        topText: overrides?.topText ?? overrides?.label,
+        bottomText: overrides?.bottomText ?? overrides?.secondaryLabel,
+        textColor: overrides?.textColor,
+        nextStops: overrides?.nextStops,
+        displayFormat: overrides?.displayFormat,
+        primaryContent: overrides?.primaryContent,
+        secondaryContent: overrides?.secondaryContent,
     };
 };
 
-const buildDeviceCommandPayload = async (keys: Set<string>, deviceOptions?: DeviceOptions) => {
+const buildDeviceCommandPayload = async (
+    keys: Set<string>,
+    deviceOptions?: DeviceOptions,
+    lineOverridesByKey?: Map<string, DeviceLineOverrides>,
+) => {
     const lines: DeviceLinePayload[] = [];
 
     for (const key of keys.values()) {
         const entry = await getCacheEntry(key);
         if (!entry) continue;
-        const linePayload = buildDeviceLinePayload(key, entry.payload);
+        const linePayload = buildDeviceLinePayload(
+            key,
+            entry.payload,
+            lineOverridesByKey?.get(key),
+        );
         if (!linePayload.line) continue;
         lines.push(linePayload);
     }
@@ -275,6 +342,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
     let fanout: FanoutMap = new Map();
     let deviceToKeys = new Map<string, Set<string>>();
     let deviceOptions = new Map<string, DeviceOptions>();
+    let deviceLineOverrides = new Map<string, Map<string, DeviceLineOverrides>>();
     let refreshTimer: ReturnType<typeof setInterval> | null = null;
     let pushTimer: ReturnType<typeof setInterval> | null = null;
     let refreshLoopRunning = false;
@@ -286,7 +354,11 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
             return;
         }
 
-        const command = await buildDeviceCommandPayload(keys, deviceOptions.get(deviceId));
+        const command = await buildDeviceCommandPayload(
+            keys,
+            deviceOptions.get(deviceId),
+            deviceLineOverrides.get(deviceId),
+        );
         publish(`/device/${deviceId}/commands`, command);
     };
 
@@ -379,6 +451,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         fanout = maps.fanout;
         deviceToKeys = maps.deviceToKeys;
         deviceOptions = maps.deviceOptions;
+        deviceLineOverrides = maps.deviceLineOverrides;
         metrics.gauge("engine.devices.registered", totalDevices);
         metrics.gauge("engine.fanout.keys", fanout.size);
     };
