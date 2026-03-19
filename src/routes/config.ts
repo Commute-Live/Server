@@ -31,6 +31,7 @@ const SUPPORTED_PROVIDERS = new Set([
     "septa-rail",
     "septa-bus",
 ]);
+const CUSTOM_TEXT_FORMATS = new Set(["top-bottom", "custom-text", "split-text"]);
 
 type DisplayMetadataUpdates = {
     name?: string;
@@ -86,6 +87,42 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
         if (candidate.secondaryContent !== undefined && typeof candidate.secondaryContent !== "string") return false;
         return true;
     });
+};
+
+const normalizeOptionalText = (value: unknown) => {
+    if (typeof value !== "string") return "";
+    return value.trim();
+};
+
+const validateLineConfigs = (lines: LineConfig[] | undefined) => {
+    if (!Array.isArray(lines)) return null;
+
+    for (const [index, row] of lines.entries()) {
+        const provider = normalizeOptionalText(row.provider).toLowerCase();
+        const line = normalizeOptionalText(row.line);
+        const stop = normalizeOptionalText(row.stop);
+        const topText = normalizeOptionalText(row.topText);
+        const bottomText = normalizeOptionalText(row.bottomText);
+        const displayFormat = normalizeOptionalText(row.displayFormat).toLowerCase();
+
+        if (!provider) {
+            return `Line ${index + 1}: provider is required`;
+        }
+        if (!line) {
+            return `Line ${index + 1}: line is required`;
+        }
+        if (SUPPORTED_PROVIDERS.has(provider) && !stop) {
+            return `Line ${index + 1}: stop is required`;
+        }
+        if ((topText && !bottomText) || (!topText && bottomText)) {
+            return `Line ${index + 1}: topText and bottomText must both be provided`;
+        }
+        if (CUSTOM_TEXT_FORMATS.has(displayFormat) && (!topText || !bottomText)) {
+            return `Line ${index + 1}: displayFormat '${displayFormat}' requires both topText and bottomText`;
+        }
+    }
+
+    return null;
 };
 
 const normalizeArrivalsToDisplay = (value: unknown) => {
@@ -336,6 +373,9 @@ const toDisplayResponse = (
 
 async function validateDisplayLines(deps: dependency, lines: LineConfig[] | undefined) {
     if (!Array.isArray(lines) || lines.length === 0) return null;
+
+    const configError = validateLineConfigs(lines);
+    if (configError) return configError;
 
     for (const row of lines) {
         const provider = (row.provider ?? "").trim().toLowerCase();
