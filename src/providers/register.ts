@@ -3,3 +3,4 @@ import "./chicago/index.ts";
 import "./boston/index.ts";
 import "./philadelphia/index.ts";
 import "./bayarea/index.ts";
+import "./new-jersey/index.ts";
