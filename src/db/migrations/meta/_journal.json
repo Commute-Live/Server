@@ -141,6 +141,13 @@
       "when": 1773766800000,
       "tag": "0019_display_metadata",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1773952000000,
+      "tag": "0020_njt_core_mode_tables",
+      "breakpoints": true
     }
   ]
 }

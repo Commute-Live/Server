@@ -11,6 +11,8 @@ const SUPPORTED_PROVIDERS = new Set([
     "cta-bus",
     "septa-rail",
     "septa-bus",
+    "njt-rail",
+    "njt-bus",
 ]);
 
 const clampArrivalsToDisplay = (value: unknown) => {

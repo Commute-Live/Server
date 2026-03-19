@@ -144,6 +144,10 @@ APP_ENV_FILE=.env.staging docker compose --env-file .env.staging -p commutelive-
 | `GET` | `/cta/stations/:mode/lines` | List all CTA lines for a mode |
 | `GET` | `/cta/stations/:mode/:stopId/lines` | Get lines serving a CTA station/stop |
 | `GET` | `/cta/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
+| `GET` | `/njt/stations` | List NJ Transit stations/stops by mode (`rail` or `bus`) |
+| `GET` | `/njt/stations/:mode/lines` | List all NJ Transit lines for a mode |
+| `GET` | `/njt/stations/:mode/:stopId/lines` | Get lines serving an NJ Transit station/stop |
+| `GET` | `/njt/stations/:mode/:stopId/arrivals` | Get grouped realtime arrivals for requested line(s) |
 | `GET` | `/bayarea/stations` | List Bay Area stations/stops by mode (`bus`, `tram`, `cableway`) and operator (`operator_id` required) |
 | `GET` | `/bayarea/stations/:mode/lines` | List all Bay Area lines for a mode and operator (`operator_id` required) |
 | `GET` | `/bayarea/stations/:mode/:stopId/lines` | Get lines serving a Bay Area station/stop (`operator_id` required) |
@@ -180,6 +184,7 @@ bun run cta:import:core:local
 bun run mbta:import:core:local
 bun run septa:import:core:local
 bun run bayarea:import:core:local
+bun run njt:import:core:local
 ```
 
 ```bash
@@ -188,6 +193,7 @@ bun run bayarea:import:core:local
 ./scripts/transit/import-mbta-core.sh
 ./scripts/transit/import-septa-core.sh
 ./scripts/transit/import-bayarea-core.sh
+./scripts/transit/import-njt-core.sh
 ```
 
 ## Useful Commands
