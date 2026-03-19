@@ -75,6 +75,15 @@ const validateLines = (lines: unknown): lines is LineConfig[] => {
         if (candidate.direction !== undefined && typeof candidate.direction !== "string") return false;
         if (candidate.displayType !== undefined && typeof candidate.displayType !== "number") return false;
         if (candidate.scrolling !== undefined && typeof candidate.scrolling !== "boolean") return false;
+        if (candidate.label !== undefined && typeof candidate.label !== "string") return false;
+        if (candidate.secondaryLabel !== undefined && typeof candidate.secondaryLabel !== "string") return false;
+        if (candidate.topText !== undefined && typeof candidate.topText !== "string") return false;
+        if (candidate.bottomText !== undefined && typeof candidate.bottomText !== "string") return false;
+        if (candidate.textColor !== undefined && typeof candidate.textColor !== "string") return false;
+        if (candidate.nextStops !== undefined && typeof candidate.nextStops !== "number") return false;
+        if (candidate.displayFormat !== undefined && typeof candidate.displayFormat !== "string") return false;
+        if (candidate.primaryContent !== undefined && typeof candidate.primaryContent !== "string") return false;
+        if (candidate.secondaryContent !== undefined && typeof candidate.secondaryContent !== "string") return false;
         return true;
     });
 };

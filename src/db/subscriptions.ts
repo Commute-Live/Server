@@ -105,6 +105,7 @@ export async function loadSubscriptionsFromDb(db: { select: Function }) {
                 displayType,
                 scrolling,
                 arrivalsToDisplay: deviceArrivalsToDisplay,
+                lineConfig: line,
             });
         }
     }

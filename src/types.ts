@@ -6,6 +6,7 @@ export type Subscription = {
     displayType?: number;
     scrolling?: boolean;
     arrivalsToDisplay?: number;
+    lineConfig?: LineConfig;
 };
 
 export type DisplayWeekday =
@@ -24,6 +25,15 @@ export type LineConfig = {
     direction?: string;
     displayType?: number;
     scrolling?: boolean;
+    label?: string;
+    secondaryLabel?: string;
+    topText?: string;
+    bottomText?: string;
+    textColor?: string;
+    nextStops?: number;
+    displayFormat?: string;
+    primaryContent?: string;
+    secondaryContent?: string;
 };
 
 export type DeviceConfig = {
