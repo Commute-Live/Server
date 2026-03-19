@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 PROD_ENV_FILE="${PROD_ENV_FILE:-prod.env}"
+PSQL_BIN="${PSQL_BIN:-psql}"
 
 TRANSIT_TABLE_PATTERNS=(
   'septa\_%'
@@ -60,6 +61,25 @@ require_command() {
   fi
 }
 
+require_command_string() {
+  local cmd_string="$1"
+  local cmd_name="${cmd_string%% *}"
+  require_command "${cmd_name}"
+}
+
+run_cmd_string() {
+  local cmd_string="$1"
+  shift
+
+  local quoted_args=()
+  local arg
+  for arg in "$@"; do
+    quoted_args+=("$(printf '%q' "${arg}")")
+  done
+
+  eval "${cmd_string} ${quoted_args[*]}"
+}
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
@@ -73,7 +93,7 @@ fi
 
 BACKUP_SQL="$1"
 
-require_command psql
+require_command_string "${PSQL_BIN}"
 require_command mktemp
 
 cd "${ROOT_DIR}"
@@ -114,7 +134,7 @@ cleanup() {
 trap cleanup EXIT
 
 TABLE_QUERY="$(build_table_query)"
-psql --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
+run_cmd_string "${PSQL_BIN}" --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
 mapfile -t PROD_TABLES < "${PROD_TABLES_TXT}"
 
 if [[ "${#PROD_TABLES[@]}" -eq 0 ]]; then
@@ -141,5 +161,5 @@ COMMIT;
 EOF
 
 log "Restoring transit backup from ${BACKUP_SQL}"
-psql --dbname="${PROD_DATABASE_URL}" --file="${ROLLBACK_SQL}"
+run_cmd_string "${PSQL_BIN}" --dbname="${PROD_DATABASE_URL}" --file="${ROLLBACK_SQL}"
 log "Transit backup restore complete."

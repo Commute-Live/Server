@@ -8,6 +8,8 @@ PROD_ENV_FILE="${PROD_ENV_FILE:-prod.env}"
 DEFAULT_TRANSIT_BACKUP_DIR="${HOME:-${ROOT_DIR}}/transit-backups/commute-live"
 TRANSIT_BACKUP_DIR="${TRANSIT_BACKUP_DIR:-${DEFAULT_TRANSIT_BACKUP_DIR}}"
 DRY_RUN="${DRY_RUN:-0}"
+PSQL_BIN="${PSQL_BIN:-psql}"
+PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
 
 TRANSIT_TABLE_PATTERNS=(
   'septa\_%'
@@ -45,6 +47,12 @@ require_command() {
     echo "ERROR: required command not found: ${cmd}" >&2
     exit 1
   fi
+}
+
+require_command_string() {
+  local cmd_string="$1"
+  local cmd_name="${cmd_string%% *}"
+  require_command "${cmd_name}"
 }
 
 log() {
@@ -86,6 +94,27 @@ run_cmd() {
   "$@"
 }
 
+run_cmd_string() {
+  local cmd_string="$1"
+  shift
+
+  if [[ "${DRY_RUN}" == "1" ]]; then
+    printf '[dry-run] %s ' "${cmd_string}" >&2
+    printf '%q ' "$@" >&2
+    printf '\n' >&2
+    return 0
+  fi
+
+  local quoted_args=()
+  local arg
+  for arg in "$@"; do
+    quoted_args+=("$(printf '%q' "${arg}")")
+  done
+
+  # Allow wrapper commands like `docker run ... psql` while preserving exact argv quoting.
+  eval "${cmd_string} ${quoted_args[*]}"
+}
+
 for arg in "$@"; do
   case "$arg" in
     --dry-run)
@@ -103,8 +132,8 @@ for arg in "$@"; do
   esac
 done
 
-require_command pg_dump
-require_command psql
+require_command_string "${PG_DUMP_BIN}"
+require_command_string "${PSQL_BIN}"
 require_command mktemp
 require_command find
 
@@ -153,13 +182,15 @@ trap cleanup EXIT
 TABLE_QUERY="$(build_table_query)"
 
 if [[ "${DRY_RUN}" == "1" ]]; then
-  printf '[dry-run] psql --dbname=%q -At -c %q > %q\n' \
+  printf '[dry-run] %s --dbname=%q -At -c %q > %q\n' \
+    "${PSQL_BIN}" \
     "${STAGING_DATABASE_URL}" "${TABLE_QUERY}" "${STAGING_TABLES_TXT}" >&2
-  printf '[dry-run] psql --dbname=%q -At -c %q > %q\n' \
+  printf '[dry-run] %s --dbname=%q -At -c %q > %q\n' \
+    "${PSQL_BIN}" \
     "${PROD_DATABASE_URL}" "${TABLE_QUERY}" "${PROD_TABLES_TXT}" >&2
 else
-  psql --dbname="${STAGING_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${STAGING_TABLES_TXT}"
-  psql --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
+  run_cmd_string "${PSQL_BIN}" --dbname="${STAGING_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${STAGING_TABLES_TXT}"
+  run_cmd_string "${PSQL_BIN}" --dbname="${PROD_DATABASE_URL}" -At -c "${TABLE_QUERY}" > "${PROD_TABLES_TXT}"
 fi
 
 if [[ "${DRY_RUN}" == "1" ]]; then
@@ -213,14 +244,14 @@ TRUNCATE_SQL="$(IFS=', '; echo "${TRUNCATE_TABLES_SQL[*]}")"
 mkdir -p "${BACKUP_DAY_DIR}"
 
 log "Backing up current prod transit tables to ${PROD_BACKUP_SQL}"
-run_cmd pg_dump \
+run_cmd_string "${PG_DUMP_BIN}" \
   --dbname="${PROD_DATABASE_URL}" \
   --data-only \
   --file="${PROD_BACKUP_SQL}" \
   "${TABLE_ARGS[@]}"
 
 log "Exporting staging transit tables to ${STAGING_EXPORT_SQL}"
-run_cmd pg_dump \
+run_cmd_string "${PG_DUMP_BIN}" \
   --dbname="${STAGING_DATABASE_URL}" \
   --data-only \
   --file="${STAGING_EXPORT_SQL}" \
@@ -228,10 +259,11 @@ run_cmd pg_dump \
 
 log "Capturing expected staging row counts"
 if [[ "${DRY_RUN}" == "1" ]]; then
-  printf '[dry-run] psql --dbname=%q -At -F "\\t" -c %q > %q\n' \
+  printf '[dry-run] %s --dbname=%q -At -F "\\t" -c %q > %q\n' \
+    "${PSQL_BIN}" \
     "${STAGING_DATABASE_URL}" "${COUNT_QUERY}" "${EXPECTED_COUNTS_TSV}" >&2
 else
-  psql \
+  run_cmd_string "${PSQL_BIN}" \
     --dbname="${STAGING_DATABASE_URL}" \
     -At \
     -F $'\t' \
@@ -271,7 +303,7 @@ COMMIT;
 EOF
 
 log "Applying staging transit data to prod inside a single transaction"
-run_cmd psql --dbname="${PROD_DATABASE_URL}" --file="${PROMOTION_SQL}"
+run_cmd_string "${PSQL_BIN}" --dbname="${PROD_DATABASE_URL}" --file="${PROMOTION_SQL}"
 
 if [[ "${DRY_RUN}" != "1" ]]; then
   log "Promotion committed. Removing temporary rollback snapshot ${PROD_BACKUP_SQL}"
