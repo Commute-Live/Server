@@ -12,7 +12,7 @@ import {
     uniqueIndex,
     uuid,
 } from "drizzle-orm/pg-core";
-import type { DeviceConfig } from "../../types.ts";
+import type { DeviceConfig, DisplayWeekday } from "../../types.ts";
 
 // Devices: physical hardware unit
 export const devices = pgTable("devices", {
@@ -31,6 +31,13 @@ export const displays = pgTable(
         deviceId: text("device_id")
             .notNull()
             .references(() => devices.id, { onDelete: "cascade" }),
+        name: text("name").notNull().default(""),
+        paused: boolean("paused").notNull().default(false),
+        priority: integer("priority").notNull().default(0),
+        sortOrder: integer("sort_order").notNull().default(0),
+        scheduleStart: text("schedule_start"),
+        scheduleEnd: text("schedule_end"),
+        scheduleDays: jsonb("schedule_days").$type<DisplayWeekday[]>().notNull().default([]),
         config: jsonb("config").$type<DeviceConfig>().notNull().default({}),
         createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
         updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
@@ -38,6 +45,7 @@ export const displays = pgTable(
     (table) => ({
         deviceIdx: index("idx_displays_device_id").on(table.deviceId),
         deviceCreatedIdx: index("idx_displays_device_created").on(table.deviceId, table.createdAt),
+        deviceSortIdx: index("idx_displays_device_sort").on(table.deviceId, table.sortOrder),
     }),
 );
 

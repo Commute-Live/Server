@@ -134,6 +134,13 @@
       "when": 1773763200000,
       "tag": "0018_displays",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1773766800000,
+      "tag": "0019_display_metadata",
+      "breakpoints": true
     }
   ]
 }
