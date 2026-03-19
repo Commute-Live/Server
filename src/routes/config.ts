@@ -7,7 +7,11 @@ import type { DeviceConfig, DeviceDisplay, DisplayWeekday, LineConfig } from "..
 import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 import { loadtestGuard } from "../middleware/loadtest.ts";
-import { listLinesForStop } from "../gtfs/stops_lookup.ts";
+import {
+    getCoreStationById as getMtaStationById,
+    listCoreLinesForStation as listMtaLinesForStation,
+    normalizeCoreLineId as normalizeMtaLineId,
+} from "../mta/core_catalog.ts";
 import {
     listCoreLinesForStation as listCtaLinesForStation,
     normalizeCoreLineId as normalizeCtaLineId,
@@ -371,6 +375,55 @@ const toDisplayResponse = (
     isActive,
 });
 
+const normalizeMtaSubwayDirection = (value: string | undefined) => {
+    const normalized = (value ?? "").trim().toUpperCase();
+    return normalized === "N" || normalized === "S" ? normalized : "";
+};
+
+async function resolveMtaSubwayStopForConfig(
+    deps: dependency,
+    rawStop: string,
+    rawDirection: string | undefined,
+) {
+    const normalizedStop = rawStop.trim().toUpperCase();
+    if (!normalizedStop) return null;
+
+    let station = await getMtaStationById(deps.db, "subway", normalizedStop);
+    if (!station && /[NS]$/.test(normalizedStop)) {
+        station = await getMtaStationById(deps.db, "subway", normalizedStop.slice(0, -1));
+    }
+    if (!station) return null;
+
+    const childStopIds = station.childStopIds
+        .map((value) => value.trim().toUpperCase())
+        .filter((value) => value.length > 0);
+    const requestedDirection =
+        normalizeMtaSubwayDirection(rawDirection) ||
+        (/[NS]$/.test(normalizedStop) ? normalizedStop.slice(-1) : "");
+
+    let providerStop = normalizedStop;
+    if (!childStopIds.includes(providerStop)) {
+        if (requestedDirection) {
+            providerStop =
+                childStopIds.find((value) => value.endsWith(requestedDirection)) ?? "";
+        } else if (childStopIds.length === 1) {
+            providerStop = childStopIds[0] ?? "";
+        } else {
+            providerStop = "";
+        }
+    }
+
+    const resolvedDirection =
+        requestedDirection ||
+        (providerStop.endsWith("N") ? "N" : providerStop.endsWith("S") ? "S" : "");
+
+    return {
+        station,
+        providerStop,
+        direction: resolvedDirection,
+    };
+}
+
 async function validateDisplayLines(deps: dependency, lines: LineConfig[] | undefined) {
     if (!Array.isArray(lines) || lines.length === 0) return null;
 
@@ -391,10 +444,28 @@ async function validateDisplayLines(deps: dependency, lines: LineConfig[] | unde
         }
 
         if (provider === "mta-subway" && line && stop) {
-            const stopLines = await listLinesForStop(stop);
-            const normalizedStopLines = stopLines.map((v) => v.trim().toUpperCase());
-            if (!normalizedStopLines.includes(line)) {
+            const normalizedLine = normalizeMtaLineId("subway", line);
+            const resolvedStop = await resolveMtaSubwayStopForConfig(deps, stop, row.direction);
+            if (!resolvedStop?.providerStop) {
                 return `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`;
+            }
+
+            const stopLines = await listMtaLinesForStation(
+                deps.db,
+                "subway",
+                resolvedStop.station.stopId,
+            );
+            const normalizedStopLines = stopLines.map((entry) =>
+                normalizeMtaLineId("subway", entry.id),
+            );
+            if (!normalizedStopLines.includes(normalizedLine)) {
+                return `Invalid line+stop combination for New York subway: line ${line} does not serve stop ${stop}`;
+            }
+
+            row.line = normalizedLine;
+            row.stop = resolvedStop.providerStop;
+            if (resolvedStop.direction) {
+                row.direction = resolvedStop.direction;
             }
         }
 
