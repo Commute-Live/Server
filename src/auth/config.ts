@@ -21,6 +21,14 @@ const boolFromEnv = (value: string | undefined, fallback: boolean): boolean => {
     return value.toLowerCase() === "true";
 };
 
+const sameSiteFromEnv = (value: string | undefined, fallback: "Strict" | "Lax" | "None") => {
+    const normalized = value?.trim().toLowerCase();
+    if (normalized === "strict") return "Strict";
+    if (normalized === "lax") return "Lax";
+    if (normalized === "none") return "None";
+    return fallback;
+};
+
 const accessTokenTtlMinutes = parseNumber(process.env.ACCESS_TOKEN_TTL_MIN, 15);
 const refreshTokenTtlDays = parseNumber(process.env.REFRESH_TOKEN_TTL_DAYS, 30);
 
@@ -32,6 +40,10 @@ export const authConfig = {
     accessTokenTtlSeconds: Math.floor(accessTokenTtlMinutes * 60),
     refreshTokenTtlSeconds: Math.floor(refreshTokenTtlDays * 24 * 60 * 60),
     cookieSecure: boolFromEnv(process.env.COOKIE_SECURE, process.env.NODE_ENV === "production"),
+    cookieSameSite: sameSiteFromEnv(
+        process.env.COOKIE_SAME_SITE,
+        process.env.NODE_ENV === "production" ? "None" : "Lax",
+    ),
 } as const;
 
 export const ACCESS_COOKIE_NAME = "access_token";
