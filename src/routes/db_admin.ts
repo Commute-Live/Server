@@ -19,6 +19,51 @@ const escapeHtml = (value: unknown) =>
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#39;");
 
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+
+const isJsonString = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return false;
+    return (
+        (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+        (trimmed.startsWith("[") && trimmed.endsWith("]"))
+    );
+};
+
+const formatCellValue = (value: unknown) => {
+    if (value === null || value === undefined) return "";
+
+    let jsonValue: unknown = null;
+
+    if (Array.isArray(value) || isPlainObject(value)) {
+        jsonValue = value;
+    } else if (typeof value === "string" && isJsonString(value)) {
+        try {
+            jsonValue = JSON.parse(value) as unknown;
+        } catch {
+            jsonValue = null;
+        }
+    }
+
+    if (jsonValue !== null) {
+        const prettyJson = JSON.stringify(jsonValue, null, 2) ?? String(value);
+        const preview =
+            JSON.stringify(jsonValue) ??
+            (typeof value === "string" ? value : String(value));
+        const shortenedPreview =
+            preview.length > 72 ? `${preview.slice(0, 69)}...` : preview;
+
+        return `
+<details class="json-cell">
+  <summary>${escapeHtml(shortenedPreview)}</summary>
+  <pre>${escapeHtml(prettyJson)}</pre>
+</details>`;
+    }
+
+    return escapeHtml(value);
+};
+
 const renderRows = (rows: Array<Record<string, unknown>>) => {
     if (!rows.length) return "<p>No rows returned.</p>";
 
@@ -27,7 +72,7 @@ const renderRows = (rows: Array<Record<string, unknown>>) => {
     const body = rows
         .map((row) => {
             const cells = columns
-                .map((col) => `<td>${escapeHtml(row[col] ?? "")}</td>`)
+                .map((col) => `<td>${formatCellValue(row[col])}</td>`)
                 .join("");
             return `<tr>${cells}</tr>`;
         })
@@ -136,6 +181,9 @@ export function registerDbAdmin(app: Hono, deps: dependency) {
     table { border-collapse: collapse; width: 100%; margin-top: 12px; background: #fff; }
     th, td { border: 1px solid #dde3ea; text-align: left; padding: 6px; font-size: 12px; vertical-align: top; }
     th { background: #f7f9fb; position: sticky; top: 0; }
+    .json-cell { min-width: 220px; }
+    .json-cell summary { cursor: pointer; color: #0f3d70; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 480px; }
+    .json-cell pre { margin: 8px 0 0 0; padding: 10px; border-radius: 8px; background: #f7f9fb; border: 1px solid #e2e7ee; white-space: pre-wrap; word-break: break-word; font-size: 11px; line-height: 1.45; }
   </style>
 </head>
 <body>
