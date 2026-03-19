@@ -19,8 +19,8 @@ for mode in rail bus; do
   done
 done
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-cd "${SCRIPT_DIR}"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
+cd "${ROOT_DIR}"
 
 echo "Importing SEPTA core files from: ${SOURCE_DIR}"
 bun run src/scripts/septa_import_core_local.ts "${SOURCE_DIR}"

@@ -6,7 +6,7 @@ import { ACCESS_COOKIE_NAME, REFRESH_COOKIE_NAME, authConfig } from "./config.ts
 const baseCookieOptions = {
     httpOnly: true,
     secure: authConfig.cookieSecure,
-    sameSite: "Strict" as const,
+    sameSite: authConfig.cookieSameSite,
     path: "/",
 };
 

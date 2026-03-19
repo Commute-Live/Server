@@ -2,7 +2,7 @@
 set -euo pipefail
 
 GTFS_URL="${GTFS_URL:-https://www.transitchicago.com/downloads/sch_data/google_transit.zip}"
-ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 WORK_DIR="$(mktemp -d "/tmp/cta-core-import-XXXXXX")"
 
 cleanup() {

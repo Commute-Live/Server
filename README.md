@@ -183,11 +183,11 @@ bun run bayarea:import:core:local
 ```
 
 ```bash
-./import-mta-core.sh
-./import-cta-core.sh
-./import-mbta-core.sh
-./import-septa-core.sh
-./import-bayarea-core.sh
+./scripts/transit/import-mta-core.sh
+./scripts/transit/import-cta-core.sh
+./scripts/transit/import-mbta-core.sh
+./scripts/transit/import-septa-core.sh
+./scripts/transit/import-bayarea-core.sh
 ```
 
 ## Useful Commands
@@ -201,5 +201,52 @@ docker compose down -v
 ```bash
 docker exec -it commutelive-postgres psql -U commute -d commutelive
 ```
+
+## Nightly Transit Promotion
+
+For a simple staging-to-prod promotion flow, use the included shell scripts to copy only transit tables.
+
+Required environment:
+
+```bash
+STAGING_DATABASE_URL=postgres://...
+PROD_DATABASE_URL=postgres://...
+TRANSIT_BACKUP_DIR=/home/your-user/transit-backups/commute-live
+```
+
+Promotion behavior:
+- Backs up current prod transit tables first
+- Dumps staging transit tables
+- Replaces prod transit tables inside a single transaction
+- Validates restored row counts before commit
+- Deletes the temporary prod backup after a successful commit
+- Rolls back automatically if restore or validation fails
+
+Run the nightly promotion:
+
+```bash
+./scripts/transit/promote-transit-to-prod.sh
+```
+
+Or:
+
+```bash
+npm run transit:promote:nightly
+```
+
+Dry run:
+
+```bash
+./scripts/transit/promote-transit-to-prod.sh --dry-run
+```
+
+Rollback from a saved prod snapshot:
+
+```bash
+./scripts/transit/restore-transit-backup.sh /home/your-user/transit-backups/commute-live/2026-03-17/prod-transit-before-20260317T020000Z.sql
+```
+
+The scripts only touch transit tables, including the SEPTA, MTA, CTA, MBTA, and Bay Area datasets. App tables such as users, devices, auth sessions, and other non-transit data are left alone.
+Transit tables are selected dynamically by prefix families: `septa_*`, `mta_*`, `cta_*`, `mbta_*`, and `bayarea_*`.
 
 Great!

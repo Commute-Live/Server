@@ -43,8 +43,8 @@ if [ "${bus_ok}" -ne 1 ]; then
   exit 1
 fi
 
-SCRIPT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
-cd "${SCRIPT_DIR}"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
+cd "${ROOT_DIR}"
 
 echo "Importing MTA core files from: ${SOURCE_DIR}"
 bun run src/scripts/mta_import_core_local.ts "${SOURCE_DIR}"

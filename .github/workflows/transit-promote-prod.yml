@@ -1,0 +1,32 @@
+name: Promote Transit To Prod
+
+on:
+  workflow_dispatch:
+
+jobs:
+  promote-transit-prod:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Run transit promotion on staging via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.STAGE_SSH_HOST }}
+          username: ${{ secrets.STAGE_SSH_USER }}
+          port: ${{ secrets.STAGE_SSH_PORT }}
+          key: ${{ secrets.STAGE_SSH_PRIVATE_KEY }}
+          script_stop: true
+          command_timeout: 55m
+          script: |
+            set -euo pipefail
+            cd /opt/Server
+
+            git fetch origin
+            git checkout staging
+            git reset --hard origin/staging
+
+            export PSQL_BIN='docker run --rm --network host -v /tmp:/tmp -v /opt/Server:/opt/Server postgres:16 psql'
+            export PG_DUMP_BIN='docker run --rm --network host -v /home/commutex/transit-backups:/home/commutex/transit-backups -v /tmp:/tmp postgres:16 pg_dump'
+
+            ./scripts/transit/promote-transit-to-prod.sh --dry-run
+            ./scripts/transit/promote-transit-to-prod.sh

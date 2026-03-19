@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)"
 WORK_DIR="$(mktemp -d "/tmp/mta-core-import-XXXXXX")"
 SCRIPT_STARTED_AT="$(date +%s)"
 MTA_IMPORT_ENGINE="${MTA_IMPORT_ENGINE:-python}"
