@@ -388,6 +388,20 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 if (deviceIds?.size) {
                     for (const deviceId of deviceIds) {
                         if (!onlineDevices.has(deviceId)) continue;
+                        // Only push when all keys for this device are cached and not inflight.
+                        // Exclude the current key from the inflight check — it's being removed
+                        // from inflight in `finally` after this block, but it is already cached.
+                        const allKeys = deviceToKeys.get(deviceId);
+                        if (allKeys) {
+                            const allReady = await Promise.all(
+                                [...allKeys].map(async (k) => {
+                                    if (k !== key && inflight.has(k)) return false;
+                                    const entry = await getCacheEntry(k);
+                                    return !!entry;
+                                }),
+                            );
+                            if (!allReady.every(Boolean)) continue;
+                        }
                         await publishDeviceCommand(deviceId);
                     }
                 }
@@ -514,6 +528,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         onlineDevices.add(deviceId);
         markDeviceActiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device active state"));
         await rebuildMaps();
+        void publishDeviceCommand(deviceId);
     };
 
     const markDeviceInactive = async (deviceId: string): Promise<void> => {

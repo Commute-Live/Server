@@ -29,11 +29,13 @@ const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const SUPPORTED_PROVIDERS = new Set([
     "mta-subway",
     "mta-bus",
+    "mta-lirr",
     "mbta",
     "cta-subway",
     "cta-bus",
     "septa-rail",
     "septa-bus",
+    "septa-trolley",
 ]);
 const CUSTOM_TEXT_FORMATS = new Set(["top-bottom", "custom-text", "split-text"]);
 
@@ -585,6 +587,16 @@ async function getResolvedDisplaysForDevice(deps: dependency, deviceId: string) 
     };
 }
 
+async function getActiveDisplayRow(deps: dependency, deviceId: string) {
+    const deviceDisplays = await getDisplayRowsForDevice(deps, deviceId);
+    const active = resolveActiveDisplay(deviceDisplays);
+    if (!active) return null;
+    return {
+        ...active,
+        config: normalizeConfig(active.config),
+    } as DisplayRow;
+}
+
 async function compactSortOrder(deps: dependency, deviceId: string) {
     const rows = await deps.db
         .select({ displayId: displays.id })
@@ -775,7 +787,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
             const existingDisplay = parsed.displayId
                 ? await getDisplayRow(deps, deviceId, parsed.displayId)
-                : null;
+                : await getActiveDisplayRow(deps, deviceId);
 
             if (parsed.displayId && !existingDisplay) {
                 return c.json({ error: "Display not found" }, 404);

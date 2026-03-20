@@ -6,11 +6,13 @@ import type { DeviceConfig, DeviceDisplay, LineConfig, Subscription } from "../t
 const SUPPORTED_PROVIDERS = new Set([
     "mta-subway",
     "mta-bus",
+    "mta-lirr",
     "mbta",
     "cta-subway",
     "cta-bus",
     "septa-rail",
     "septa-bus",
+    "septa-trolley",
     "njt-rail",
     "njt-bus",
 ]);
