@@ -29,11 +29,13 @@ const CLOCK_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
 const SUPPORTED_PROVIDERS = new Set([
     "mta-subway",
     "mta-bus",
+    "mta-lirr",
     "mbta",
     "cta-subway",
     "cta-bus",
     "septa-rail",
     "septa-bus",
+    "septa-trolley",
 ]);
 const CUSTOM_TEXT_FORMATS = new Set(["top-bottom", "custom-text", "split-text"]);
 
