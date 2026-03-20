@@ -11,9 +11,9 @@ const escapeHtml = (value: string) =>
 export function buildPasswordResetEmail(input: { resetUrl: string }) {
     const safeUrl = escapeHtml(input.resetUrl);
     const text = [
-        "Commutelive",
+        "CommuteLive",
         "",
-        "We received a request to reset your Commutelive password.",
+        "We received a request to reset your CommuteLive password.",
         `This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes.`,
         "",
         `Reset your password: ${input.resetUrl}`,
@@ -31,13 +31,13 @@ export function buildPasswordResetEmail(input: { resetUrl: string }) {
           <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:560px;background:#ffffff;border-radius:18px;overflow:hidden;border:1px solid #d7e0ea;">
             <tr>
               <td style="padding:24px 28px;background:#102033;color:#ffffff;font-size:22px;font-weight:700;">
-                Commutelive
+                CommuteLive
               </td>
             </tr>
             <tr>
               <td style="padding:28px;">
                 <p style="margin:0 0 16px;font-size:16px;line-height:1.6;">
-                  We received a request to reset your Commutelive password.
+                  We received a request to reset your CommuteLive password.
                 </p>
                 <p style="margin:0 0 24px;font-size:14px;line-height:1.6;color:#4c6177;">
                   Use the button below to choose a new password. This link expires in ${PASSWORD_RESET_TTL_MINUTES} minutes.
@@ -66,7 +66,7 @@ export function buildPasswordResetEmail(input: { resetUrl: string }) {
 </html>`.trim();
 
     return {
-        subject: "Reset your Commutelive password",
+        subject: "Reset your CommuteLive password",
         html,
         text,
     };

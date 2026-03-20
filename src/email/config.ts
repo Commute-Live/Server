@@ -14,6 +14,6 @@ export const emailConfig = {
     appBaseUrl: (
         process.env.APP_BASE_URL?.trim() || "https://commutelive.com"
     ).replace(/\/+$/, ""),
-    authFrom: process.env.EMAIL_FROM_AUTH?.trim() || "Commutelive <auth@commutelive.com>",
+    authFrom: process.env.EMAIL_FROM_AUTH?.trim() || "CommuteLive <auth@commutelive.com>",
     authReplyTo: process.env.EMAIL_REPLY_TO?.trim() || "team@commutelive.com",
 } as const;
