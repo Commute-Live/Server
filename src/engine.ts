@@ -388,12 +388,14 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
                 if (deviceIds?.size) {
                     for (const deviceId of deviceIds) {
                         if (!onlineDevices.has(deviceId)) continue;
-                        // Only push when all keys for this device are cached and not inflight
+                        // Only push when all keys for this device are cached and not inflight.
+                        // Exclude the current key from the inflight check — it's being removed
+                        // from inflight in `finally` after this block, but it is already cached.
                         const allKeys = deviceToKeys.get(deviceId);
                         if (allKeys) {
                             const allReady = await Promise.all(
                                 [...allKeys].map(async (k) => {
-                                    if (inflight.has(k)) return false;
+                                    if (k !== key && inflight.has(k)) return false;
                                     const entry = await getCacheEntry(k);
                                     return !!entry;
                                 }),
