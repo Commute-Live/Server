@@ -526,6 +526,7 @@ export function startAggregatorEngine(options: EngineOptions): AggregatorEngine 
         onlineDevices.add(deviceId);
         markDeviceActiveInCache(deviceId).catch((err) => logger.error({ err, deviceId }, "failed to persist device active state"));
         await rebuildMaps();
+        void publishDeviceCommand(deviceId);
     };
 
     const markDeviceInactive = async (deviceId: string): Promise<void> => {
