@@ -1,7 +1,8 @@
 import "dotenv/config";
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { startDb } from "../db.ts";
 import { devices, displays, userDevices, users } from "../schema/schema.ts";
+import { hashPassword } from "../../auth/password.ts";
 
 const { db, sql } = startDb();
 
@@ -30,7 +31,7 @@ async function seed() {
         },
     });
 
-    const passwordHash = createHash("sha256").update("demo-password").digest("hex");
+    const passwordHash = await hashPassword("demo-password");
 
     const [user] = await db.insert(users).values({
         email: "demo@example.com",

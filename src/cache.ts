@@ -30,7 +30,7 @@ const parseEntry = (raw: string | null): CacheEntry | null => {
     }
 };
 
-const getRedisClient = async (): Promise<RedisClient> => {
+export const getRedisClient = async (): Promise<RedisClient> => {
     if (redisClient?.isOpen) {
         return redisClient;
     }

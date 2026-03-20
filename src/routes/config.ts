@@ -720,6 +720,8 @@ async function updateDisplayRecord(
 }
 
 export function registerConfig(app: Hono, deps: dependency) {
+    const requireAuth = authRequired(deps);
+
     app.get("/device/:deviceId/config", loadtestGuard, async (c) => {
         const deviceId = c.req.param("deviceId");
         const reportedFw = c.req.query("fw")?.trim() ?? null;
@@ -766,7 +768,7 @@ export function registerConfig(app: Hono, deps: dependency) {
     app.post(
         "/device/:deviceId/config",
         loadtestGuard,
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -818,7 +820,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.get(
         "/device/:deviceId/displays",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -839,7 +841,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.get(
         "/device/:deviceId/displays/active",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -859,7 +861,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.get(
         "/device/:deviceId/displays/:displayId",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -880,7 +882,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.post(
         "/device/:deviceId/displays",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -922,7 +924,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.patch(
         "/device/:deviceId/displays/:displayId",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -965,7 +967,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.delete(
         "/device/:deviceId/displays/:displayId",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -995,7 +997,7 @@ export function registerConfig(app: Hono, deps: dependency) {
 
     app.post(
         "/device/:deviceId/displays/reorder",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
