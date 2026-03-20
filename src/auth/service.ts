@@ -1,4 +1,4 @@
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull } from "drizzle-orm";
 import { createHash, randomUUID } from "node:crypto";
 
 import type { dependency } from "../types/dependency.d.ts";
@@ -7,15 +7,18 @@ import {
     userDevices,
     users,
 } from "../db/schema/schema.ts";
+import {
+    hashPassword,
+    isLegacyPasswordHash,
+    upgradeLegacyPasswordHash,
+    verifyPassword,
+} from "./password.ts";
 import { authConfig } from "./config.ts";
 import {
     signAccessToken,
     signRefreshToken,
     verifyRefreshToken,
 } from "./tokens.ts";
-
-const hashPassword = (password: string) =>
-    createHash("sha256").update(password).digest("hex");
 
 const hashToken = (token: string) =>
     createHash("sha256").update(token).digest("hex");
@@ -68,8 +71,15 @@ export async function loginAndIssueTokens(
         .limit(1);
     if (!user) return { ok: false };
 
-    const passwordHash = hashPassword(credentials.password);
-    if (passwordHash !== user.passwordHash) return { ok: false };
+    const passwordValid = await verifyPassword(
+        credentials.password,
+        user.passwordHash,
+    );
+    if (!passwordValid) return { ok: false };
+
+    if (isLegacyPasswordHash(user.passwordHash)) {
+        await upgradeLegacyPasswordHash(deps, user.id, credentials.password);
+    }
 
     const sessionId = randomUUID();
     const familyId = randomUUID();
@@ -250,4 +260,60 @@ export async function revokeSessionByRefreshToken(
                 isNull(authRefreshSessions.revokedAt),
             ),
         );
+}
+
+export async function revokeAllSessionsForUser(
+    deps: dependency,
+    userId: string,
+): Promise<void> {
+    const revokedAt = new Date().toISOString();
+
+    await deps.db
+        .update(authRefreshSessions)
+        .set({ revokedAt, updatedAt: revokedAt })
+        .where(
+            and(
+                eq(authRefreshSessions.userId, userId),
+                isNull(authRefreshSessions.revokedAt),
+            ),
+        );
+}
+
+export async function replaceUserPassword(
+    deps: dependency,
+    userId: string,
+    password: string,
+): Promise<void> {
+    const passwordHash = await hashPassword(password);
+    const updatedAt = new Date().toISOString();
+
+    await deps.db
+        .update(users)
+        .set({
+            passwordHash,
+            updatedAt,
+        })
+        .where(eq(users.id, userId));
+}
+
+export async function isSessionActive(
+    deps: dependency,
+    input: { userId: string; sessionId: string },
+): Promise<boolean> {
+    const now = new Date().toISOString();
+
+    const [activeSession] = await deps.db
+        .select({ sessionId: authRefreshSessions.sessionId })
+        .from(authRefreshSessions)
+        .where(
+            and(
+                eq(authRefreshSessions.userId, input.userId),
+                eq(authRefreshSessions.sessionId, input.sessionId),
+                isNull(authRefreshSessions.revokedAt),
+                gt(authRefreshSessions.expiresAt, now),
+            ),
+        )
+        .limit(1);
+
+    return Boolean(activeSession);
 }

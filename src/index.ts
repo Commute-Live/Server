@@ -9,6 +9,7 @@ import { loadSubscriptionsFromDb } from "./db/subscriptions.ts";
 import { publish as mqttPublish, subscribePresence, initMqtt } from "./mqtt/mqtt.ts";
 import { initCache } from "./cache.ts";
 import { logger } from "./logger.ts";
+import { allowedOrigins } from "./security/origin.ts";
 
 await initCache();
 
@@ -30,13 +31,6 @@ const aggregator = startAggregatorEngine({
 });
 
 const app = new Hono();
-
-const allowedOrigins = (
-    process.env.CORS_ORIGINS ?? "http://localhost:8081,http://127.0.0.1:8081"
-)
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
 
 app.use("*", ddTraceMiddleware);
 

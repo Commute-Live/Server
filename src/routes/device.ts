@@ -16,6 +16,8 @@ async function getDeviceById(deps: dependency, deviceId: string) {
 }
 
 export function registerDevice(app: Hono, deps: dependency) {
+    const requireAuth = authRequired(deps);
+
     app.get("/device/:device_id", async (c) => {
         const deviceId = c.req.param("device_id");
         const device = await getDeviceById(deps, deviceId);
@@ -27,7 +29,7 @@ export function registerDevice(app: Hono, deps: dependency) {
 
     app.get(
         "/device/:device_id/last-command",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "device_id"),
         async (c) => {
             const deviceId = c.req.param("device_id");

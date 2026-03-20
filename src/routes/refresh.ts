@@ -4,9 +4,11 @@ import { authRequired } from "../middleware/auth.ts";
 import { requireDeviceAccess } from "../middleware/deviceAccess.ts";
 
 export function registerRefresh(app: Hono, deps: dependency) {
+    const requireAuth = authRequired(deps);
+
     app.post(
         "/refresh/device/:deviceId",
-        authRequired,
+        requireAuth,
         requireDeviceAccess(deps, "deviceId"),
         async (c) => {
             const deviceId = c.req.param("deviceId");
@@ -16,7 +18,7 @@ export function registerRefresh(app: Hono, deps: dependency) {
         },
     );
 
-    app.post("/refresh/key", authRequired, async (c) => {
+    app.post("/refresh/key", requireAuth, async (c) => {
         const body = await c.req.json().catch(() => null);
         const key = body?.key;
         if (!key || typeof key !== "string") {

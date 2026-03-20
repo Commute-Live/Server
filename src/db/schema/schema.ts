@@ -105,6 +105,26 @@ export const authRefreshSessions = pgTable(
     })
 );
 
+export const passwordResetTokens = pgTable(
+    "password_reset_tokens",
+    {
+        id: uuid("id").primaryKey().defaultRandom(),
+        userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+        tokenHash: text("token_hash").notNull(),
+        requestedByIp: text("requested_by_ip"),
+        usedByIp: text("used_by_ip"),
+        expiresAt: timestamp("expires_at", { withTimezone: true, mode: "string" }).notNull(),
+        usedAt: timestamp("used_at", { withTimezone: true, mode: "string" }),
+        invalidatedAt: timestamp("invalidated_at", { withTimezone: true, mode: "string" }),
+        createdAt: timestamp("created_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+        updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" }).defaultNow().notNull(),
+    },
+    (table) => ({
+        tokenHashUnique: uniqueIndex("idx_password_reset_tokens_token_hash").on(table.tokenHash),
+        userExpiryIdx: index("idx_password_reset_tokens_user_expiry").on(table.userId, table.expiresAt),
+    }),
+);
+
 export const firmwareReleases = pgTable(
     "firmware_releases",
     {
