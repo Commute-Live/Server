@@ -35,6 +35,7 @@ const providerIdForMode = (mode: CoreMode) =>
 
 type ArrivalPayload = {
     arrivals?: unknown;
+    destination?: unknown;
     [k: string]: unknown;
 };
 
@@ -179,11 +180,18 @@ export function registerSeptaRoutes(app: Hono, deps: dependency) {
                         result.payload && typeof result.payload === "object"
                             ? (result.payload as ArrivalPayload)
                             : {};
-                    const arrivals = Array.isArray(payload.arrivals) ? payload.arrivals.slice(0, limitPerLine) : [];
+                    const rawArrivals = Array.isArray(payload.arrivals) ? payload.arrivals : [];
+                    const arrivals = rawArrivals.slice(0, limitPerLine);
+                    const destination =
+                        (rawArrivals as Array<{destination?: string | null}>).find(
+                            (a) => typeof a.destination === "string" && a.destination.length > 0
+                        )?.destination ??
+                        (typeof payload.destination === "string" && payload.destination.length > 0 ? payload.destination : null);
                     const line = lineMeta.get(lineId);
                     return {
                         lineId,
                         lineLabel: line?.label ?? lineId,
+                        destination: destination ?? null,
                         arrivals,
                         error: null,
                     };
@@ -192,6 +200,7 @@ export function registerSeptaRoutes(app: Hono, deps: dependency) {
                     return {
                         lineId,
                         lineLabel: line?.label ?? lineId,
+                        destination: null,
                         arrivals: [],
                         error: err instanceof Error ? err.message : "Failed to fetch arrivals",
                     };

@@ -205,6 +205,7 @@ export function registerMbtaRoutes(app: Hono, deps: dependency) {
             requestedLineIds.map(async (lineId) => {
                 const arrivalsAcrossStops: ArrivalLike[] = [];
                 const errors: string[] = [];
+                let groupDestination: string | null = null;
 
                 await Promise.all(
                     providerStops.map(async (providerStop) => {
@@ -228,17 +229,26 @@ export function registerMbtaRoutes(app: Hono, deps: dependency) {
                                     : {};
                             const arrivals = Array.isArray(payload.arrivals) ? (payload.arrivals as ArrivalLike[]) : [];
                             arrivalsAcrossStops.push(...arrivals);
+                            if (!groupDestination && typeof payload.destination === "string" && payload.destination.length > 0) {
+                                groupDestination = payload.destination;
+                            }
                         } catch (err) {
                             errors.push(err instanceof Error ? err.message : "Failed to fetch arrivals");
                         }
                     }),
                 );
 
+                const sortedArrivals = sortAndLimitArrivals(arrivalsAcrossStops, limitPerLine);
+                const destination =
+                    sortedArrivals.find((a) => typeof a.destination === "string" && a.destination.length > 0)?.destination ??
+                    groupDestination;
+
                 const line = lineMeta.get(lineKey(mode, lineId));
                 return {
                     lineId,
                     lineLabel: line?.label ?? lineId,
-                    arrivals: sortAndLimitArrivals(arrivalsAcrossStops, limitPerLine),
+                    destination: destination ?? null,
+                    arrivals: sortedArrivals,
                     error: arrivalsAcrossStops.length === 0 && errors.length > 0 ? errors[0] : null,
                 };
             }),
